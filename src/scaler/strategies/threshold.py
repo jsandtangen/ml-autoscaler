@@ -2,7 +2,7 @@ from .base import ScalingStrategy
 
 
 class ThresholdStrategy(ScalingStrategy):
-    def desired_instances(self, player_count: int) -> int:
+    def desired_instances(self, player_count):
         if player_count < 100:
             return 1
         elif player_count < 300:
