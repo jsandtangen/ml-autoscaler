@@ -84,7 +84,7 @@ work below is guidance, not a requirement to expand every task's scope.
 - Client errors derive from `GameDataClientError`: `PrometheusQueryError` for
   request/query failures and `PrometheusResponseError` for malformed responses.
 - The inspection script uses `http://127.0.0.1:9090` and `appid="730"`. These are
-  script defaults, not a configured environment. No exporter is supplied here.
+  script defaults; Compose supplies the included Steam exporter.
 - The autoscaler loop in `main.py` defaults to `http://127.0.0.1:9090`,
   `steam_player_count`, and a 30-second interval. It accepts `--label KEY=VALUE`
   filters and `--once` for a single evaluation. Environment alternatives are
@@ -155,6 +155,7 @@ With Docker Desktop running Linux containers:
 ```powershell
 docker compose config --quiet
 docker compose up -d --build
+docker compose restart prometheus
 docker compose logs -f autoscaler
 docker compose down
 ```
@@ -176,6 +177,14 @@ docker compose run --rm --no-deps --entrypoint promtool prometheus check config 
 Prometheus data persists in `prometheus_data`; `docker compose down -v` deletes
 it. The fake controller's count resets on autoscaler restart. Initial scrape or
 connection failures are handled by the loop's existing log-and-skip behavior.
+Restart Prometheus after changing its YAML: `compose up --build` does not reload
+configuration in an unchanged, already running Prometheus container.
+
+On 2026-10-07, the live Compose data chain was verified: the Steam exporter
+returned `steam_player_count{appid="730"}`, the `game_players` target was `up`,
+and an evaluation logged 724491 players and scaling from zero to four fake
+instances. The previous running stack lacked the exporter and needed a
+Prometheus restart to load the updated target. Recheck live status each session.
 
 On 2026-10-07, the broken `.venv` referenced a missing Python 3.11.1
 installation and was recreated with Python 3.11.13. Recheck the environment on
@@ -206,8 +215,7 @@ checking it.
 
 ## Suggested next milestone
 
-The next useful milestone is verifying the Compose stack end to end with Docker
-running:
+The Compose data chain has been verified live. Repeat these checks after changes:
 
 1. Start the exporter, Prometheus, and autoscaler with `docker compose up -d --build`.
 2. Confirm that Prometheus has scraped `steam_player_count{appid="730"}`.

@@ -10,12 +10,16 @@ Start Docker Desktop with Linux containers, then run from the repository root:
 Copy-Item .env.example .env
 docker compose config --quiet
 docker compose up -d --build
+docker compose restart prometheus
 docker compose logs -f autoscaler
 ```
 
 Only copy `.env.example` if you do not already have a `.env` file. Compose uses
 the example defaults even without `.env`. Shell environment variables override
 values in `.env`. The file is ignored by Git.
+
+Restart Prometheus after updating `prometheus/prometheus.yml`: rebuilding the
+Python images does not reload configuration in an existing Prometheus container.
 
 This starts the Steam player exporter, Prometheus, and the Python loop using
 `FakeVMController`. Prometheus is available at http://127.0.0.1:9090, with scrape
@@ -52,6 +56,21 @@ Validate Prometheus configuration or run a single evaluation:
 docker compose run --rm --no-deps --entrypoint promtool prometheus check config /etc/prometheus/prometheus.yml
 docker compose run --rm autoscaler python main.py --once
 ```
+
+Verify the complete running data chain:
+
+```powershell
+docker compose ps
+docker compose exec -T autoscaler python -c "from urllib.request import urlopen; print(urlopen('http://steam-exporter:8000/metrics', timeout=10).read().decode())"
+docker compose exec -T autoscaler python main.py --once
+docker compose logs --tail 10 autoscaler
+```
+
+At http://127.0.0.1:9090/targets, `game_players` must be `UP`. Query
+`steam_player_count{appid="730"}` in Prometheus to check the scraped sample.
+The autoscaler log must contain `players`, `desired_instances`,
+`running_instances`, and `action`; a query warning means no decision was made.
+Use your configured app id and host port if you changed the defaults.
 
 Run the exporter directly on the host if you want to inspect its output without
 Compose:
