@@ -29,8 +29,7 @@ Repository facts checked on 2026-10-07:
 - Distribution name: `ruby-acorn`, version `0.1.0`.
 - Import package: `scaler`, located under `src/`. Use this name for imports.
 - Python requirement: `>=3.11`; build backend: setuptools.
-- Tests use pytest; the `dev` extra declares `pytest>=8`.
-- `requests` is imported by the data client but is not declared as a dependency.
+- Runtime dependencies include `requests`; tests use pytest via the `dev` extra.
 - `main.py`, `requirements.txt`, `docker-compose.yml`, `.env.example`, and
   `prometheus/prometheus.yml` are empty placeholders.
 - README.md contains only a project title. No complete application entry point,
@@ -92,18 +91,16 @@ Create a virtual environment with an available Python 3.11+ interpreter:
 py -3.11 -m venv .venv
 ```
 
-If the Windows launcher is unavailable or another supported version is installed,
-use that interpreter instead. Then install the package, test extra, and the
-currently undeclared runtime dependency:
+If the Windows launcher is unavailable, use another supported interpreter or
+`uv venv .venv --python 3.11`. Then install the package and test extra:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]" requests
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-The separate `requests` installation is a temporary workaround. When fixing
-packaging, declare it in `pyproject.toml` so normal package installation supplies
-runtime dependencies. Do not treat the empty `requirements.txt` as authoritative.
+Do not treat the empty `requirements.txt` as authoritative; dependencies are
+declared in `pyproject.toml`.
 
 With a reachable Prometheus instance exposing the expected metric:
 
@@ -115,10 +112,11 @@ Editable installation makes `scaler` importable with the src layout. Prefer it
 over adding sys.path hacks. No supported application-start or Docker command is
 available until the placeholders are implemented.
 
-Earlier environment checks found a virtual environment referencing a missing
-Python installation, so tests could not run. Recheck the environment on each
-session; do not assume that failure still applies or claim tests passed without
-running them. Do not delete an existing virtual environment without checking it.
+On 2026-10-07, the broken `.venv` referenced a missing Python 3.11.1
+installation and was recreated with Python 3.11.13. Recheck the environment on
+each session; do not assume that failure still applies or claim tests passed
+without running them. Do not delete an existing virtual environment without
+checking it.
 
 ## Verification and implementation practices
 
@@ -135,8 +133,9 @@ running them. Do not delete an existing virtual environment without checking it.
   Documentation-only changes need review and a diff check, not a live service.
 - No formatter, linter, type checker, or CI workflow is currently configured.
   Do not report checks that are not present or were not run.
-- `.gitignore` excludes `.venv/`, Python caches, pytest caches, and
-  `personal_notes.md`. Do not rely on private notes being present on other machines.
+- `.gitignore` excludes `.venv/`, Python caches, pytest caches, egg-info
+  metadata, and `personal_notes.md`. Do not rely on private notes being present
+  on other machines.
 - Keep secrets out of source, logs, tests, and examples. Use placeholders when
   adding environment configuration.
 

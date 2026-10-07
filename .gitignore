@@ -3,3 +3,4 @@ personal_notes.md
 __pycache__/
 .pytest_cache/
 *.py[cod]
+*.egg-info/
