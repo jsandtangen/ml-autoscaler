@@ -73,6 +73,11 @@ work below is guidance, not a requirement to expand every task's scope.
 ## Behavior and contracts
 
 - `ScalingStrategy.desired_instances(player_count)` returns the desired count.
+- Strategies are selected by `--strategy` or `AUTOSCALER_STRATEGY`, defaulting
+  to `threshold`. `src/scaler/strategies/registry.py` maps names to implementations;
+  unknown names fail at startup. Add algorithms there without changing the loop.
+- Each evaluation computes the desired count once; `DecisionEngine` applies it
+  via `apply_desired_instances(desired)`. `evaluate(player_count)` remains available.
 - `ThresholdStrategy` returns 1 below 100 players, 2 from 100 to 299, 3 from
   300 to 599, and 4 at 600 or above. These are prototype values, not validated
   production capacity limits.

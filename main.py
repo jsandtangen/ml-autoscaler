@@ -15,7 +15,7 @@ from scaler.exporter.autoscaler_metrics import (
     start_metrics_server,
 )
 from scaler.infrastructure.vm_controller import FakeVMController
-from scaler.strategies.threshold import ThresholdStrategy
+from scaler.strategies.registry import DEFAULT_STRATEGY, STRATEGIES, create_strategy
 
 
 DEFAULT_PROMETHEUS_URL = "http://127.0.0.1:9090"
@@ -36,6 +36,7 @@ class AutoscalerConfig:
     metrics_host: str = DEFAULT_METRICS_HOST
     metrics_port: int = DEFAULT_METRICS_PORT
     run_once: bool = False
+    strategy_name: str = DEFAULT_STRATEGY
 
 
 def parse_label_filter(value: str) -> tuple[str, str]:
@@ -95,6 +96,12 @@ def positive_int(value: str) -> int:
 def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
     parser = argparse.ArgumentParser(description="Run the Ruby Acorn autoscaler loop.")
     parser.add_argument(
+        "--strategy",
+        choices=sorted(STRATEGIES),
+        default=os.getenv("AUTOSCALER_STRATEGY", DEFAULT_STRATEGY),
+        help="Scaling strategy. Can also be set with AUTOSCALER_STRATEGY.",
+    )
+    parser.add_argument(
         "--prometheus-url",
         default=os.getenv("PROMETHEUS_URL", DEFAULT_PROMETHEUS_URL),
         help="Base URL for Prometheus. Can also be set with PROMETHEUS_URL.",
@@ -143,6 +150,8 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
     )
 
     args = parser.parse_args(argv)
+    if args.strategy not in STRATEGIES:
+        parser.error(f"Unknown scaling strategy: {args.strategy}")
     label_filters = parse_env_label_filters(os.getenv("AUTOSCALER_LABELS"))
     label_filters.update(dict(args.label))
 
@@ -154,11 +163,12 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         metrics_host=args.metrics_host,
         metrics_port=args.metrics_port,
         run_once=args.once,
+        strategy_name=args.strategy,
     )
 
 
-def build_engine() -> DecisionEngine:
-    return DecisionEngine(ThresholdStrategy(), FakeVMController())
+def build_engine(strategy_name: str = DEFAULT_STRATEGY) -> DecisionEngine:
+    return DecisionEngine(create_strategy(strategy_name), FakeVMController())
 
 
 def evaluate_once(
@@ -170,7 +180,7 @@ def evaluate_once(
     player_count = client.get_player_count(label_filters)
     current_instances = engine.vm_controller.running_instances()
     desired_instances = engine.strategy.desired_instances(player_count)
-    running_instances = engine.evaluate(player_count)
+    running_instances = engine.apply_desired_instances(desired_instances)
     if metrics:
         metrics.set_running_instances(running_instances)
 
@@ -205,16 +215,17 @@ def run_loop(
         config.prometheus_url,
         metric_name=config.metric_name,
     )
-    engine = engine or build_engine()
+    engine = engine or build_engine(config.strategy_name)
     metrics = metrics or AutoscalerMetrics()
 
     logger.info(
         "Starting autoscaler loop prometheus_url=%s metric_name=%s labels=%s "
-        "interval_seconds=%s",
+        "interval_seconds=%s strategy=%s",
         config.prometheus_url,
         config.metric_name,
         config.label_filters or "{}",
         config.interval_seconds,
+        config.strategy_name,
     )
     if not config.run_once:
         start_metrics_server(

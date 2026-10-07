@@ -1,4 +1,5 @@
 import logging
+import pytest
 
 from main import AutoscalerConfig, evaluate_once, load_config, run_loop
 from scaler.data.client import PrometheusQueryError
@@ -6,6 +7,8 @@ from scaler.engine.decision_engine import DecisionEngine
 from scaler.exporter.autoscaler_metrics import AutoscalerMetrics
 from scaler.infrastructure.vm_controller import FakeVMController
 from scaler.strategies.threshold import ThresholdStrategy
+from scaler.strategies.base import ScalingStrategy
+from scaler.strategies.registry import STRATEGIES
 
 
 class FakeGameDataClient:
@@ -21,6 +24,43 @@ class FakeGameDataClient:
             raise self.error
 
         return self.player_counts.pop(0)
+
+
+def test_strategy_defaults_to_threshold(monkeypatch):
+    monkeypatch.delenv("AUTOSCALER_STRATEGY", raising=False)
+    assert load_config([]).strategy_name == "threshold"
+
+
+@pytest.mark.parametrize("argv", [[], ["--strategy", "unknown"]])
+def test_unknown_strategy_is_rejected(monkeypatch, argv):
+    monkeypatch.setenv("AUTOSCALER_STRATEGY", "unknown")
+    with pytest.raises(SystemExit) as error:
+        load_config(argv)
+    assert error.value.code == 2
+
+
+def test_cli_strategy_overrides_environment(monkeypatch):
+    monkeypatch.setenv("AUTOSCALER_STRATEGY", "unknown")
+    assert load_config(["--strategy", "threshold"]).strategy_name == "threshold"
+
+
+def test_registered_strategy_is_selected_and_called_once(monkeypatch):
+    class CustomStrategy(ScalingStrategy):
+        def desired_instances(self, player_count):
+            calls.append(player_count)
+            return 7
+
+    calls = []
+    monkeypatch.setitem(STRATEGIES, "custom", CustomStrategy)
+    monkeypatch.setenv("AUTOSCALER_STRATEGY", "custom")
+    metrics = AutoscalerMetrics()
+
+    config = load_config(["--once"])
+    assert config.strategy_name == "custom"
+    run_loop(config, client=FakeGameDataClient([150]), metrics=metrics)
+
+    assert calls == [150]
+    assert "running_instances 7" in metrics.render().decode("utf-8")
 
 
 def test_load_config_reads_environment_and_cli_labels(monkeypatch):

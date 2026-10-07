@@ -1,4 +1,12 @@
 from scaler.strategies.threshold import ThresholdStrategy
+import pytest
+
+
+@pytest.mark.parametrize(
+    "players, desired", [(0, 1), (99, 1), (100, 2), (299, 2), (300, 3), (599, 3), (600, 4)]
+)
+def test_threshold_boundaries(players, desired):
+    assert ThresholdStrategy().desired_instances(players) == desired
 
 
 def test_threshold_strategy():

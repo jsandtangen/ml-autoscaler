@@ -5,6 +5,9 @@ class DecisionEngine:
 
     def evaluate(self, player_count):
         desired = self.strategy.desired_instances(player_count)
+        return self.apply_desired_instances(desired)
+
+    def apply_desired_instances(self, desired):
         current = self.vm_controller.running_instances()
 
         if desired > current:

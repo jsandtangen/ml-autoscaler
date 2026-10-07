@@ -125,6 +125,18 @@ $env:AUTOSCALER_LABELS = "appid=730"
 .\.venv\Scripts\python.exe main.py
 ```
 
-The current loop uses `ThresholdStrategy` and `FakeVMController`. It logs and
+The default strategy is explicitly named `threshold`. Select it with
+`--strategy threshold` or `AUTOSCALER_STRATEGY=threshold` (also supported by
+Compose). Unknown strategy names are rejected at startup.
+
+The scaling flow is `player_count -> strategy -> desired_instances`, followed by
+the decision engine applying the difference through `FakeVMController`.
+`ThresholdStrategy` implements the `ScalingStrategy.desired_instances` contract:
+below 100 players it requests 1 instance, from 100 to 299 it requests 2, from
+300 to 599 it requests 3, and from 600 it requests 4. To add another algorithm,
+implement that contract and register its name in `src/scaler/strategies/registry.py`;
+the autoscaler loop does not need algorithm-specific changes.
+
+The loop logs and
 skips Prometheus/client errors instead of treating missing or invalid metrics as
 zero players.
