@@ -63,6 +63,9 @@ work below is guidance, not a requirement to expand every task's scope.
 | Path | Responsibility |
 | --- | --- |
 | `src/scaler/data/client.py` | Prometheus HTTP queries, response parsing, player count samples and exceptions |
+| `src/scaler/data/history.py` | Append-only CSV player-count history |
+| `src/scaler/forecasting.py` | Persistence/moving-average forecasts and rolling MAE/RMSE evaluation |
+| `scripts/evaluate_forecasts.py` | Offline baseline comparison from player history, with JSON output |
 | `src/scaler/strategies/base.py` | Abstract `ScalingStrategy` contract |
 | `src/scaler/strategies/threshold.py` | Current threshold-based instance calculation |
 | `src/scaler/strategies/aggressive.py` | Threshold baseline plus one buffer instance |
@@ -90,6 +93,18 @@ work below is guidance, not a requirement to expand every task's scope.
 ## Behavior and contracts
 
 - `ScalingStrategy.desired_instances(player_count)` returns the desired count.
+- Forecasting is independent of scaling in `scaler.forecasting`. Forecasters
+  implement `predict(player_counts)` on a past-only input window. Persistence
+  returns its latest count; moving average returns its mean. Offline evaluation
+  uses identical rolling windows and future targets, reporting MAE/RMSE per game.
+  Window/horizon units are observations, not elapsed time; irregular sampling is
+  not resampled. CSV loading sorts each appid separately and rejects malformed
+  rows and duplicate timestamps. No ML model or predictive scaling is enabled.
+  Run `.\.venv\Scripts\python.exe scripts/evaluate_forecasts.py --appid 730
+  --window-size 10 --horizon 1` against default `data/player_history.csv`, or
+  supply `--history-path`. At least window size + horizon observations are needed
+  per evaluated game. Later models must be compared on the same chronological
+  evaluation period and future targets.
 - Strategies are selected by `--strategy` or `AUTOSCALER_STRATEGY`, defaulting
   to `threshold`. `src/scaler/strategies/registry.py` maps names to implementations;
   unknown names fail at startup. Add algorithms there without changing the loop.

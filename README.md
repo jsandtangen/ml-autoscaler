@@ -188,6 +188,30 @@ Failed queries are skipped and are not recorded as zero. In per-game mode, the
 host. The `data/` directory is ignored by Git because it is generated training
 data.
 
+### Forecasting baselines
+
+Compare two simple forecasts before introducing TimesFM: `persistence` predicts
+the latest player count, and `moving_average` predicts the mean of the input
+window. Evaluate them on the recorded history:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/evaluate_forecasts.py --history-path data/player_history.csv --appid 730 --window-size 10 --horizon 1
+```
+
+The JSON report contains the evaluated sample count, MAE and RMSE in players
+(lower is better), and a `latest_prediction` using the newest input window for
+the selected horizon. Both baselines use identical rolling windows and future
+targets; target values are never included in prediction inputs. Omit `--appid`
+to evaluate every game separately. Empty appids represent legacy history.
+
+Window size and horizon count observations, not seconds. At a regular 30-second
+sampling interval, horizon 10 corresponds to approximately five minutes; failed
+queries can lengthen that interval. Each game needs at least `window_size +
+horizon` observations. Invalid rows and duplicate timestamps fail evaluation.
+These are offline comparison results over available history. A later ML model
+should use the same held-out chronological period, windows and horizon for a
+fair comparison. Forecasting lives separately from the scaling strategies.
+
 ### Strategies per game
 
 Use a TOML configuration to select different strategies for different Steam
