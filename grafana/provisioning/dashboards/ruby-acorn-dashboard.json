@@ -18,7 +18,15 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "links": [],
+  "links": [
+    {
+      "title": "Scaling dashboard",
+      "type": "link",
+      "url": "/d/ruby-acorn-scaling/ruby-acorn-scaling",
+      "keepTime": true,
+      "targetBlank": false
+    }
+  ],
   "panels": [
     {
       "datasource": "Prometheus",

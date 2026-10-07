@@ -30,6 +30,8 @@ class GameMetrics:
     running_instances: int = 0
     strategy: str | None = None
     decision: DecisionSnapshot | None = None
+    scale_up_events: int = 0
+    scale_down_events: int = 0
 
 
 class AutoscalerMetrics:
@@ -61,7 +63,14 @@ class AutoscalerMetrics:
         )
         decision = DecisionSnapshot(player_count, desired_instances, action, time.time())
         with self._lock:
-            self._games[appid] = GameMetrics(running_instances, strategy, decision)
+            previous = self._games.get(appid, GameMetrics())
+            self._games[appid] = GameMetrics(
+                running_instances=running_instances,
+                strategy=strategy,
+                decision=decision,
+                scale_up_events=previous.scale_up_events + (action > 0),
+                scale_down_events=previous.scale_down_events + (action < 0),
+            )
 
     def render(self) -> bytes:
         with self._lock:
@@ -76,12 +85,20 @@ class AutoscalerMetrics:
             "scaling_action": "Last successful decision: -1 down, 0 unchanged, 1 up.",
             "strategy": "Selected scaling strategy identified by the name label.",
             "last_decision_timestamp_seconds": "Unix timestamp of the last successful decision.",
+            "scale_up_events_total": "Total successful scale-up operations since process start.",
+            "scale_down_events_total": "Total successful scale-down operations since process start.",
         }
         samples: dict[str, list[str]] = {name: [] for name in descriptions}
         for appid, state in sorted(games.items(), key=lambda item: item[0] or ""):
             labels = self._labels(appid)
             samples["running_instances"].append(
                 f"running_instances{labels} {state.running_instances}\n"
+            )
+            samples["scale_up_events_total"].append(
+                f"scale_up_events_total{labels} {state.scale_up_events}\n"
+            )
+            samples["scale_down_events_total"].append(
+                f"scale_down_events_total{labels} {state.scale_down_events}\n"
             )
             if state.strategy is not None:
                 strategy_labels = self._labels(appid, name=state.strategy)
@@ -98,7 +115,9 @@ class AutoscalerMetrics:
                     samples[name].append(f"{name}{labels} {value}\n")
 
         return "".join(
-            f"# HELP {name} {description}\n# TYPE {name} gauge\n" + "".join(samples[name])
+            f"# HELP {name} {description}\n"
+            f"# TYPE {name} {'counter' if name.endswith('_total') else 'gauge'}\n"
+            + "".join(samples[name])
             for name, description in descriptions.items()
         ).encode("utf-8")
 

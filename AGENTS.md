@@ -41,6 +41,10 @@ Repository facts checked on 2026-10-07:
   `autoscaler:8001/metrics`. No real VM provider exists.
 - Grafana is provisioned with a Prometheus datasource and a `Ruby Acorn
   Autoscaler` dashboard for source counts and autoscaler decision metrics.
+- `Ruby Acorn Scaling` is the second dashboard, provisioned from
+  `grafana/provisioning/dashboards/ruby-acorn-scaling-dashboard.json`. It has an
+  appid selector, decision input, desired/running counts, strategy, event counts,
+  and decision age. Links connect both dashboards.
 - README.md documents local Docker setup, the required metric source, Grafana,
   and the loop.
 
@@ -135,6 +139,12 @@ work below is guidance, not a requirement to expand every task's scope.
 - `promtool check metrics` flags the requested `player_count` gauge name because
   `_count` is normally reserved for histogram/summary counts. Prometheus accepts
   the metric; distinguish this naming lint warning from a text-format error.
+- `scale_up_events_total` and `scale_down_events_total` are per-game counters
+  (unlabeled in legacy mode). They count successful scaling operations, not VMs;
+  unchanged decisions and failures do not increment them. Counters reset on
+  process restart. The scaling dashboard uses increase over rolling intervals
+  and raw totals; it does not provide exact event timestamps or capture an
+  increase that happened before the first scrape.
 - Prometheus/client errors in the loop are logged and skipped; failed queries are
   not interpreted as zero players.
 - `SteamPlayerClient` queries Steam's current-player endpoint with an `appid` and

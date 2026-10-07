@@ -219,6 +219,8 @@ The autoscaler exports these gauges on `/metrics` (port 8001 by default):
 | `scaling_action` | Last successful action: `-1` down, `0` unchanged, `1` up |
 | `strategy{name="aggressive"}` | Selected strategy; info-style gauge with value `1` |
 | `last_decision_timestamp_seconds` | Unix timestamp of the last successful evaluation |
+| `scale_up_events_total` | Counter of successful scale-up operations since process start |
+| `scale_down_events_total` | Counter of successful scale-down operations since process start |
 
 Per-game mode adds `appid` to every metric, for example
 `strategy{appid="730",name="aggressive"} 1`. Legacy single-game mode leaves
@@ -243,3 +245,28 @@ Grafana reloads the provisioned dashboard file automatically.
 `promtool check metrics` reports a naming lint warning for `player_count`
 because `_count` is normally reserved for histogram/summary counts. This name
 is retained for the decision input gauge; Prometheus scrapes and queries it.
+
+### Scaling dashboard
+
+Grafana provisions two dashboards in the `Ruby Acorn` folder:
+
+- `Ruby Acorn Autoscaler`: operational overview.
+- `Ruby Acorn Scaling`: player count, desired and running instances, scaling
+  events, selected strategy, and decision age. Open
+  http://127.0.0.1:3000/d/ruby-acorn-scaling/ruby-acorn-scaling.
+
+The scaling dashboard is defined in
+`grafana/provisioning/dashboards/ruby-acorn-scaling-dashboard.json`. Use the
+`Game` selector to compare configured appids; `All` also includes the legacy
+unlabeled single-game series. Links connect the two dashboards and preserve
+the selected time range.
+
+Event counters count operations, not VMs: scaling from 0 to 4 is one scale-up
+event. Unchanged decisions and failed queries do not increment them. They reset
+when the autoscaler restarts. The event chart uses
+`increase(scale_up_events_total[$__rate_interval])` and the corresponding
+scale-down counter; Prometheus handles observed counter resets. These are
+estimated increases over rolling windows, not exact event timestamps. An event
+before the first scrape may not appear as an increase, so the dashboard also
+shows each raw counter since restart. Overlapping windows can display the same
+operation at more than one point; do not sum chart points as an event total.

@@ -36,7 +36,33 @@ def test_no_decision_values_before_successful_evaluation():
     assert 'strategy{appid="730",name="aggressive"} 1' in body
     assert 'running_instances{appid="730"} 0' in body
     samples = [line for line in body.splitlines() if not line.startswith("#")]
-    assert len(samples) == 2
+    assert len(samples) == 4
+    assert 'scale_up_events_total{appid="730"} 0' in body
+    assert 'scale_down_events_total{appid="730"} 0' in body
+
+
+def test_event_counters_count_operations_and_ignore_unchanged_decisions():
+    metrics = AutoscalerMetrics()
+    metrics.record_decision(700_000, 0, 4, 4, "threshold", appid="730")
+    metrics.record_decision(700_000, 4, 4, 4, "threshold", appid="730")
+    metrics.record_decision(50, 4, 1, 1, "threshold", appid="730")
+    metrics.record_decision(150, 1, 2, 2, "threshold", appid="730")
+    metrics.record_decision(700_000, 0, 5, 5, "aggressive", appid="570")
+    body = metrics.render().decode()
+    assert "# TYPE scale_up_events_total counter" in body
+    assert "# TYPE scale_down_events_total counter" in body
+    assert 'scale_up_events_total{appid="730"} 2' in body
+    assert 'scale_down_events_total{appid="730"} 1' in body
+    assert 'scale_up_events_total{appid="570"} 1' in body
+    assert 'scale_down_events_total{appid="570"} 0' in body
+
+
+def test_event_counters_support_legacy_mode_and_reset_on_restart():
+    metrics = AutoscalerMetrics()
+    metrics.record_decision(150, 0, 2, 2, "threshold")
+    assert "scale_up_events_total 1\n" in metrics.render().decode()
+    restarted = AutoscalerMetrics()
+    assert "scale_up_events_total 0\n" in restarted.render().decode()
 
 
 @pytest.mark.parametrize("current, desired, action", [(0, 4, 1), (5, 2, -1), (4, 4, 0)])
