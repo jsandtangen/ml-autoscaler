@@ -63,6 +63,7 @@ work below is guidance, not a requirement to expand every task's scope.
 | `src/scaler/infrastructure/vm_controller.py` | In-memory `FakeVMController` |
 | `main.py` | Runnable autoscaler loop configured by CLI flags and environment variables |
 | `src/scaler/game_config.py` | Validated per-game TOML configuration |
+| `src/scaler/cost.py` | Simple hourly VM cost and fixed-baseline comparison |
 | `games.example.toml` | Example mapping of Steam appids to strategies |
 | `src/scaler/exporter/steam_player_exporter.py` | Steam current-player client and Prometheus text exporter |
 | `src/scaler/exporter/autoscaler_metrics.py` | Prometheus text exporter for autoscaler decision snapshots |
@@ -145,6 +146,15 @@ work below is guidance, not a requirement to expand every task's scope.
   process restart. The scaling dashboard uses increase over rolling intervals
   and raw totals; it does not provide exact event timestamps or capture an
   increase that happened before the first scrape.
+- Cost gauges `dynamic_cost`, `fixed_baseline_cost`, and `savings` are EUR per
+  hour at the current running allocation, not cumulative spending. Defaults:
+  0.10 EUR per VM-hour and 4 fixed VMs per game. Savings = fixed minus dynamic;
+  negative savings are retained. `CostModel` is independent of scaling strategy.
+- Configure price and baseline via `--vm-cost-per-hour` /
+  `AUTOSCALER_VM_COST_PER_HOUR` and `--fixed-baseline-instances` /
+  `AUTOSCALER_FIXED_BASELINE_INSTANCES`. Values must be nonnegative, price finite,
+  baseline integer. Assumptions apply separately to each game; per-game mode
+  adds appid to cost metrics. The scaling dashboard displays all three costs.
 - Prometheus/client errors in the loop are logged and skipped; failed queries are
   not interpreted as zero players.
 - `SteamPlayerClient` queries Steam's current-player endpoint with an `appid` and

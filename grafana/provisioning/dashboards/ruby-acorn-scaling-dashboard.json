@@ -2,7 +2,7 @@
   "uid": "ruby-acorn-scaling",
   "title": "Ruby Acorn Scaling",
   "schemaVersion": 41,
-  "version": 1,
+  "version": 2,
   "editable": true,
   "tags": [
     "ruby-acorn",
@@ -529,6 +529,142 @@
           "datasource": "Prometheus",
           "editorMode": "code",
           "expr": "time() - last_decision_timestamp_seconds{appid=~\"${game:regex}\"}",
+          "legendFormat": "game {{appid}}",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Dynamic cost (EUR/hour)",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 3
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "graphMode": "none",
+        "colorMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "editorMode": "code",
+          "expr": "dynamic_cost{appid=~\"${game:regex}\"}",
+          "legendFormat": "game {{appid}}",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Fixed baseline (EUR/hour)",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 8,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 3
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "graphMode": "none",
+        "colorMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "editorMode": "code",
+          "expr": "fixed_baseline_cost{appid=~\"${game:regex}\"}",
+          "legendFormat": "game {{appid}}",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Savings (EUR/hour)",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "graphMode": "none",
+        "colorMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "editorMode": "code",
+          "expr": "savings{appid=~\"${game:regex}\"}",
           "legendFormat": "game {{appid}}",
           "refId": "A",
           "instant": true

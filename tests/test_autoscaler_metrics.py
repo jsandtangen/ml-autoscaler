@@ -1,5 +1,29 @@
 from scaler.exporter.autoscaler_metrics import AutoscalerMetrics
 import pytest
+from scaler.cost import CostModel
+
+
+def test_cost_metrics_use_running_not_desired_instances():
+    metrics = AutoscalerMetrics()
+    metrics.set_cost_model(CostModel(0.25, 6))
+    metrics.record_decision(700_000, 0, 5, 2, "aggressive", appid="730")
+    metrics.record_decision(700_000, 0, 4, 4, "threshold", appid="570")
+    body = metrics.render().decode()
+    assert "# TYPE dynamic_cost gauge" in body
+    assert 'dynamic_cost{appid="730"} 0.5\n' in body
+    assert 'fixed_baseline_cost{appid="730"} 1.5\n' in body
+    assert 'savings{appid="730"} 1\n' in body
+    assert 'dynamic_cost{appid="570"} 1\n' in body
+    assert 'savings{appid="570"} 0.5\n' in body
+
+
+def test_negative_savings_in_legacy_metrics():
+    metrics = AutoscalerMetrics()
+    metrics.set_running_instances(5)
+    body = metrics.render().decode()
+    assert "dynamic_cost 0.5\n" in body
+    assert "fixed_baseline_cost 0.4\n" in body
+    assert "savings -0.1\n" in body
 
 
 def test_autoscaler_metrics_render_running_instances():
@@ -36,7 +60,7 @@ def test_no_decision_values_before_successful_evaluation():
     assert 'strategy{appid="730",name="aggressive"} 1' in body
     assert 'running_instances{appid="730"} 0' in body
     samples = [line for line in body.splitlines() if not line.startswith("#")]
-    assert len(samples) == 4
+    assert len(samples) == 7
     assert 'scale_up_events_total{appid="730"} 0' in body
     assert 'scale_down_events_total{appid="730"} 0' in body
 

@@ -270,3 +270,38 @@ estimated increases over rolling windows, not exact event timestamps. An event
 before the first scrape may not appear as an increase, so the dashboard also
 shows each raw counter since restart. Overlapping windows can display the same
 operation at more than one point; do not sum chart points as an event total.
+
+### Simple cost model
+
+The illustrative default price is **0.10 EUR per VM-hour**, compared with a
+fixed baseline of **4 VMs per game**. The model uses the current running count,
+not the strategy's desired count:
+
+```text
+dynamic_cost        = running_instances * vm_cost_per_hour
+fixed_baseline_cost = fixed_baseline_instances * vm_cost_per_hour
+savings             = fixed_baseline_cost - dynamic_cost
+```
+
+All three exported gauges are **EUR per hour at the current allocation**, not
+accumulated spending. For 2 running VMs, they are 0.20, 0.40, and 0.20 EUR/hour.
+For 5 VMs, savings is -0.10 EUR/hour; extra buffer capacity can cost more than
+the fixed baseline. Savings are not clamped to zero.
+
+Configure the assumptions on the host:
+
+```powershell
+.\.venv\Scripts\python.exe main.py --once --label appid=730 --vm-cost-per-hour 0.10 --fixed-baseline-instances 4
+```
+
+Or set `AUTOSCALER_VM_COST_PER_HOUR` and `AUTOSCALER_FIXED_BASELINE_INSTANCES`
+in Compose `.env`. Both accept zero; negative values and non-finite prices are
+rejected. The same price and fixed VM count apply separately to every game.
+`appid` labels distinguish game costs; `sum(dynamic_cost)`,
+`sum(fixed_baseline_cost)`, and `sum(savings)` give portfolio hourly estimates.
+
+The scaling dashboard shows dynamic cost, fixed baseline, and signed savings.
+Query failures retain the running allocation and therefore its estimated price;
+they do not imply free VMs. The estimates use the fake controller, not real
+invoices. Storage, traffic, billing granularity, and real provider pricing are
+outside this model, and no cumulative-cost accounting is implemented.

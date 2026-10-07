@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
+from scaler.cost import CostModel
 
 logger = logging.getLogger("ruby_acorn.autoscaler_metrics")
 
@@ -38,6 +39,11 @@ class AutoscalerMetrics:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._games: dict[str | None, GameMetrics] = {None: GameMetrics()}
+        self._cost_model = CostModel()
+
+    def set_cost_model(self, model: CostModel) -> None:
+        with self._lock:
+            self._cost_model = model
 
     def set_running_instances(self, count: int, appid: str | None = None) -> None:
         with self._lock:
@@ -75,6 +81,7 @@ class AutoscalerMetrics:
     def render(self) -> bytes:
         with self._lock:
             games = dict(self._games)
+            cost_model = self._cost_model
         if any(appid is not None for appid in games):
             games.pop(None, None)
 
@@ -87,10 +94,20 @@ class AutoscalerMetrics:
             "last_decision_timestamp_seconds": "Unix timestamp of the last successful decision.",
             "scale_up_events_total": "Total successful scale-up operations since process start.",
             "scale_down_events_total": "Total successful scale-down operations since process start.",
+            "dynamic_cost": "Estimated dynamic VM cost in EUR per hour at current allocation.",
+            "fixed_baseline_cost": "Estimated fixed VM baseline cost in EUR per hour per game.",
+            "savings": "Estimated savings in EUR per hour: fixed baseline minus dynamic cost.",
         }
         samples: dict[str, list[str]] = {name: [] for name in descriptions}
         for appid, state in sorted(games.items(), key=lambda item: item[0] or ""):
             labels = self._labels(appid)
+            cost = cost_model.estimate_hourly(state.running_instances)
+            for name, value in (
+                ("dynamic_cost", cost.dynamic_cost),
+                ("fixed_baseline_cost", cost.fixed_baseline_cost),
+                ("savings", cost.savings),
+            ):
+                samples[name].append(f"{name}{labels} {value:.12g}\n")
             samples["running_instances"].append(
                 f"running_instances{labels} {state.running_instances}\n"
             )

@@ -11,6 +11,47 @@ from scaler.strategies.base import ScalingStrategy
 from scaler.strategies.registry import STRATEGIES
 
 
+def test_cost_configuration_defaults(monkeypatch):
+    monkeypatch.delenv("AUTOSCALER_VM_COST_PER_HOUR", raising=False)
+    monkeypatch.delenv("AUTOSCALER_FIXED_BASELINE_INSTANCES", raising=False)
+    config = load_config([])
+    assert config.vm_cost_per_hour == 0.1
+    assert config.fixed_baseline_instances == 4
+
+
+def test_loop_uses_configured_cost_model():
+    config = load_config([
+        "--once", "--vm-cost-per-hour", "0.25", "--fixed-baseline-instances", "6"
+    ])
+    metrics = AutoscalerMetrics()
+    run_loop(config, client=FakeGameDataClient([150]), metrics=metrics)
+    body = metrics.render().decode()
+    assert "dynamic_cost 0.5\n" in body
+    assert "fixed_baseline_cost 1.5\n" in body
+    assert "savings 1\n" in body
+
+
+@pytest.mark.parametrize("cli", [False, True])
+def test_cost_configuration_and_cli_precedence(monkeypatch, cli):
+    monkeypatch.setenv("AUTOSCALER_VM_COST_PER_HOUR", "0.25")
+    monkeypatch.setenv("AUTOSCALER_FIXED_BASELINE_INSTANCES", "6")
+    argv = ["--vm-cost-per-hour", "0.5", "--fixed-baseline-instances", "8"] if cli else []
+    config = load_config(argv)
+    assert config.vm_cost_per_hour == (0.5 if cli else 0.25)
+    assert config.fixed_baseline_instances == (8 if cli else 6)
+
+
+@pytest.mark.parametrize("option, value", [
+    ("--vm-cost-per-hour", "nan"), ("--vm-cost-per-hour", "inf"),
+    ("--vm-cost-per-hour", "-0.1"), ("--fixed-baseline-instances", "-1"),
+    ("--fixed-baseline-instances", "1.5"),
+])
+def test_invalid_cost_cli_is_rejected(option, value):
+    with pytest.raises(SystemExit) as error:
+        load_config([option, value])
+    assert error.value.code == 2
+
+
 class FakeGameDataClient:
     def __init__(self, player_counts=None, error=None):
         self.player_counts = list(player_counts or [])

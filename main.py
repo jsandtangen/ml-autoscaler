@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import os
 import time
 from collections.abc import Callable, Sequence
@@ -15,6 +16,7 @@ from scaler.exporter.autoscaler_metrics import (
     start_metrics_server,
 )
 from scaler.infrastructure.vm_controller import FakeVMController
+from scaler.cost import CostModel
 from scaler.game_config import GameConfig, load_games
 from scaler.strategies.registry import (
     DEFAULT_STRATEGY, STRATEGIES, create_strategy, strategy_name,
@@ -41,6 +43,8 @@ class AutoscalerConfig:
     run_once: bool = False
     strategy_name: str = DEFAULT_STRATEGY
     games: tuple[GameConfig, ...] = ()
+    vm_cost_per_hour: float = 0.10
+    fixed_baseline_instances: int = 4
 
 
 def parse_label_filter(value: str) -> tuple[str, str]:
@@ -97,8 +101,38 @@ def positive_int(value: str) -> int:
     return parsed
 
 
+def nonnegative_float(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("Expected a nonnegative number") from error
+    if not math.isfinite(parsed) or parsed < 0:
+        raise argparse.ArgumentTypeError("Value must be finite and nonnegative")
+    return parsed
+
+
+def nonnegative_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("Expected a nonnegative integer") from error
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("Value must be nonnegative")
+    return parsed
+
+
 def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
     parser = argparse.ArgumentParser(description="Run the Ruby Acorn autoscaler loop.")
+    parser.add_argument(
+        "--vm-cost-per-hour", type=nonnegative_float,
+        default=os.getenv("AUTOSCALER_VM_COST_PER_HOUR", "0.10"),
+        help="Estimated EUR per VM-hour. Also AUTOSCALER_VM_COST_PER_HOUR.",
+    )
+    parser.add_argument(
+        "--fixed-baseline-instances", type=nonnegative_int,
+        default=os.getenv("AUTOSCALER_FIXED_BASELINE_INSTANCES", "4"),
+        help="Fixed VM baseline per game. Also AUTOSCALER_FIXED_BASELINE_INSTANCES.",
+    )
     parser.add_argument(
         "--games-config",
         default=os.getenv("AUTOSCALER_GAMES_CONFIG"),
@@ -178,6 +212,8 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         run_once=args.once,
         strategy_name=args.strategy,
         games=games,
+        vm_cost_per_hour=args.vm_cost_per_hour,
+        fixed_baseline_instances=args.fixed_baseline_instances,
     )
 
 
@@ -235,6 +271,7 @@ def run_loop(
         metric_name=config.metric_name,
     )
     metrics = metrics or AutoscalerMetrics()
+    metrics.set_cost_model(CostModel(config.vm_cost_per_hour, config.fixed_baseline_instances))
     if config.games:
         if engine is not None:
             raise ValueError("A shared engine cannot be used with per-game configuration")
@@ -252,6 +289,7 @@ def run_loop(
         ]
 
     for appid, labels, game_engine in evaluations:
+        metrics.set_running_instances(game_engine.vm_controller.running_instances(), appid=appid)
         metrics.set_strategy(strategy_name(game_engine.strategy), appid=appid)
 
     logger.info(
