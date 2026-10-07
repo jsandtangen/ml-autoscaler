@@ -100,12 +100,20 @@
           "datasource": "Prometheus",
           "editorMode": "code",
           "expr": "steam_player_count",
-          "legendFormat": "players {{appid}}",
+          "legendFormat": "source {{appid}}",
           "range": true,
           "refId": "A"
+        },
+        {
+          "datasource": "Prometheus",
+          "editorMode": "code",
+          "expr": "player_count",
+          "legendFormat": "decision {{appid}}",
+          "range": true,
+          "refId": "B"
         }
       ],
-      "title": "Steam player count",
+      "title": "Player count: source and last decision",
       "type": "timeseries"
     },
     {
@@ -188,13 +196,106 @@
           "datasource": "Prometheus",
           "editorMode": "code",
           "expr": "running_instances",
-          "legendFormat": "fake instances {{appid}}",
+          "legendFormat": "running {{appid}}",
           "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": "Prometheus",
+          "editorMode": "code",
+          "expr": "desired_instances",
+          "legendFormat": "desired {{appid}}",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Running and desired fake VM instances",
+      "type": "timeseries"
+    },
+    {
+      "id": 3,
+      "title": "Last scaling action",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "-1": { "text": "Scale down", "color": "orange" },
+                "0": { "text": "Unchanged", "color": "green" },
+                "1": { "text": "Scale up", "color": "blue" }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "value_and_name",
+        "graphMode": "none",
+        "colorMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "scaling_action",
+          "instant": true,
+          "legendFormat": "{{appid}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Selected strategy",
+      "type": "table",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "strategy == 1",
+          "instant": true,
+          "format": "table",
           "refId": "A"
         }
       ],
-      "title": "Running fake VM instances",
-      "type": "timeseries"
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true },
+            "renameByName": { "appid": "Game", "name": "Strategy" }
+          }
+        }
+      ],
+      "options": { "showHeader": true }
+    },
+    {
+      "id": 5,
+      "title": "Seconds since last successful decision",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 22 },
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 0 }, "overrides": [] },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "value_and_name",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "time() - last_decision_timestamp_seconds",
+          "instant": true,
+          "legendFormat": "{{appid}}",
+          "refId": "A"
+        }
+      ]
     }
   ],
   "preload": false,
@@ -215,6 +316,6 @@
   "timezone": "browser",
   "title": "Ruby Acorn Autoscaler",
   "uid": "ruby-acorn-autoscaler",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

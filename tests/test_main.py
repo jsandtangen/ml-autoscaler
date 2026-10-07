@@ -108,6 +108,11 @@ def test_evaluate_once_logs_scaling_decision(caplog):
 
     assert running_instances == 2
     assert "running_instances 2" in metrics.render().decode("utf-8")
+    body = metrics.render().decode()
+    assert "player_count 150\n" in body
+    assert "desired_instances 2\n" in body
+    assert "scaling_action 1\n" in body
+    assert 'strategy{name="threshold"} 1' in body
     assert client.requests == [{"appid": "730"}]
     assert "players=150" in caplog.text
     assert "desired_instances=2" in caplog.text

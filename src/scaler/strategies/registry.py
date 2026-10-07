@@ -16,3 +16,10 @@ def create_strategy(name: str) -> ScalingStrategy:
     except KeyError as error:
         raise ValueError(f"Unknown scaling strategy: {name}") from error
     return strategy_type()
+
+
+def strategy_name(strategy: ScalingStrategy) -> str:
+    for name, strategy_type in STRATEGIES.items():
+        if type(strategy) is strategy_type:
+            return name
+    return type(strategy).__name__

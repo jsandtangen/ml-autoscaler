@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, replace
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
@@ -16,38 +17,99 @@ class AutoscalerMetricsConfig:
     port: int
 
 
+@dataclass(frozen=True)
+class DecisionSnapshot:
+    player_count: int
+    desired_instances: int
+    scaling_action: int
+    timestamp: float
+
+
+@dataclass(frozen=True)
+class GameMetrics:
+    running_instances: int = 0
+    strategy: str | None = None
+    decision: DecisionSnapshot | None = None
+
+
 class AutoscalerMetrics:
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._running_instances = 0
-        self._game_instances: dict[str, int] = {}
+        self._games: dict[str | None, GameMetrics] = {None: GameMetrics()}
 
     def set_running_instances(self, count: int, appid: str | None = None) -> None:
         with self._lock:
-            if appid is None:
-                self._running_instances = count
-            else:
-                self._game_instances[appid] = count
+            state = self._games.get(appid, GameMetrics())
+            self._games[appid] = replace(state, running_instances=count)
+
+    def set_strategy(self, name: str, appid: str | None = None) -> None:
+        with self._lock:
+            state = self._games.get(appid, GameMetrics())
+            self._games[appid] = replace(state, strategy=name)
+
+    def record_decision(
+        self,
+        player_count: int,
+        current_instances: int,
+        desired_instances: int,
+        running_instances: int,
+        strategy: str,
+        appid: str | None = None,
+    ) -> None:
+        action = (desired_instances > current_instances) - (
+            desired_instances < current_instances
+        )
+        decision = DecisionSnapshot(player_count, desired_instances, action, time.time())
+        with self._lock:
+            self._games[appid] = GameMetrics(running_instances, strategy, decision)
 
     def render(self) -> bytes:
         with self._lock:
-            running_instances = self._running_instances
-            game_instances = dict(self._game_instances)
+            games = dict(self._games)
+        if any(appid is not None for appid in games):
+            games.pop(None, None)
 
-        if game_instances:
-            samples = "".join(
-                f'running_instances{{appid="{self._escape_label(appid)}"}} {count}\n'
-                for appid, count in sorted(game_instances.items())
+        descriptions = {
+            "player_count": "Player count used in the last successful decision.",
+            "running_instances": "Current number of fake VM instances.",
+            "desired_instances": "Desired instances from the last successful decision.",
+            "scaling_action": "Last successful decision: -1 down, 0 unchanged, 1 up.",
+            "strategy": "Selected scaling strategy identified by the name label.",
+            "last_decision_timestamp_seconds": "Unix timestamp of the last successful decision.",
+        }
+        samples: dict[str, list[str]] = {name: [] for name in descriptions}
+        for appid, state in sorted(games.items(), key=lambda item: item[0] or ""):
+            labels = self._labels(appid)
+            samples["running_instances"].append(
+                f"running_instances{labels} {state.running_instances}\n"
             )
-        else:
-            samples = f"running_instances {running_instances}\n"
+            if state.strategy is not None:
+                strategy_labels = self._labels(appid, name=state.strategy)
+                samples["strategy"].append(f"strategy{strategy_labels} 1\n")
+            if state.decision is not None:
+                decision = state.decision
+                values = {
+                    "player_count": decision.player_count,
+                    "desired_instances": decision.desired_instances,
+                    "scaling_action": decision.scaling_action,
+                    "last_decision_timestamp_seconds": decision.timestamp,
+                }
+                for name, value in values.items():
+                    samples[name].append(f"{name}{labels} {value}\n")
 
-        body = (
-            "# HELP running_instances Current number of fake VM instances.\n"
-            "# TYPE running_instances gauge\n"
-            f"{samples}"
-        )
-        return body.encode("utf-8")
+        return "".join(
+            f"# HELP {name} {description}\n# TYPE {name} gauge\n" + "".join(samples[name])
+            for name, description in descriptions.items()
+        ).encode("utf-8")
+
+    def _labels(self, appid: str | None, **extra: str) -> str:
+        labels = {"appid": appid} if appid is not None else {}
+        labels.update(extra)
+        if not labels:
+            return ""
+        return "{" + ",".join(
+            f'{key}="{self._escape_label(value)}"' for key, value in labels.items()
+        ) + "}"
 
     @staticmethod
     def _escape_label(value: str) -> str:

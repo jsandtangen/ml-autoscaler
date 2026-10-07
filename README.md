@@ -26,7 +26,7 @@ using `FakeVMController`. Prometheus is available at http://127.0.0.1:9090, with
 scrape status at http://127.0.0.1:9090/targets. Grafana is available at
 http://127.0.0.1:3000 with the default local credentials `admin` / `admin`. Its
 provisioned `Ruby Acorn Autoscaler` dashboard shows `steam_player_count` and
-`running_instances`. Prometheus data is stored in a named Docker volume with
+the autoscaler's decision metrics. Prometheus data is stored in a named Docker volume with
 seven-day retention. The autoscaler connects to `http://prometheus:9090` on the
 Compose network; `PROMETHEUS_PORT` only changes the host-facing port.
 
@@ -206,3 +206,40 @@ to this file does not add a player-count source. Without a games file, the
 existing single-game CLI and unlabeled `running_instances` metric still work.
 Available strategy names are `threshold` and `aggressive`; `cost_saving` is not
 implemented.
+
+### Decision metrics
+
+The autoscaler exports these gauges on `/metrics` (port 8001 by default):
+
+| Metric | Meaning |
+| --- | --- |
+| `player_count` | Player count actually used in the last successful evaluation |
+| `running_instances` | Current fake VM count |
+| `desired_instances` | Strategy's requested count in the last successful evaluation |
+| `scaling_action` | Last successful action: `-1` down, `0` unchanged, `1` up |
+| `strategy{name="aggressive"}` | Selected strategy; info-style gauge with value `1` |
+| `last_decision_timestamp_seconds` | Unix timestamp of the last successful evaluation |
+
+Per-game mode adds `appid` to every metric, for example
+`strategy{appid="730",name="aggressive"} 1`. Legacy single-game mode leaves
+`appid` off the metrics. Injected unregistered strategies use their class name.
+Strategy information is available at startup, but player count, desired count,
+action, and decision timestamp are emitted only after a successful evaluation.
+The entire decision snapshot is updated together after applying scaling.
+
+Failed queries preserve the previous decision metrics and timestamp; they do
+not report zero players or a new action. Query
+`time() - last_decision_timestamp_seconds` to see how old a decision is.
+`scaling_action` describes the latest successful evaluation, not a cumulative
+event count; a scrape can miss intermediate actions between evaluations.
+The default 30-second loop may report `0` after an earlier scaling operation.
+
+The provisioned dashboard compares source player counts with the counts used
+by the autoscaler, plots running and desired instances together, and shows the
+latest action, selected strategy, and age of each decision. Rebuild the local
+autoscaler with `docker compose up -d --build autoscaler` after code changes.
+Grafana reloads the provisioned dashboard file automatically.
+
+`promtool check metrics` reports a naming lint warning for `player_count`
+because `_count` is normally reserved for histogram/summary counts. This name
+is retained for the decision input gauge; Prometheus scrapes and queries it.

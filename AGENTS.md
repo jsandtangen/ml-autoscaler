@@ -40,7 +40,7 @@ Repository facts checked on 2026-10-07:
   `steam-exporter:8000/metrics`, plus autoscaler metrics at
   `autoscaler:8001/metrics`. No real VM provider exists.
 - Grafana is provisioned with a Prometheus datasource and a `Ruby Acorn
-  Autoscaler` dashboard for `steam_player_count` and `running_instances`.
+  Autoscaler` dashboard for source counts and autoscaler decision metrics.
 - README.md documents local Docker setup, the required metric source, Grafana,
   and the loop.
 
@@ -61,7 +61,7 @@ work below is guidance, not a requirement to expand every task's scope.
 | `src/scaler/game_config.py` | Validated per-game TOML configuration |
 | `games.example.toml` | Example mapping of Steam appids to strategies |
 | `src/scaler/exporter/steam_player_exporter.py` | Steam current-player client and Prometheus text exporter |
-| `src/scaler/exporter/autoscaler_metrics.py` | Prometheus text exporter for the autoscaler's fake running instance count |
+| `src/scaler/exporter/autoscaler_metrics.py` | Prometheus text exporter for autoscaler decision snapshots |
 | `scripts/steam_player_exporter.py` | Script entrypoint for the Steam player exporter |
 | `scripts/inspect_prometheus.py` | Manual player-count query against local Prometheus |
 | `tests/` | Unit tests for the client, strategy, decision engine, and fake controller |
@@ -120,8 +120,21 @@ work below is guidance, not a requirement to expand every task's scope.
   filters and `--once` for a single evaluation. Environment alternatives are
   `PROMETHEUS_URL`, `AUTOSCALER_INTERVAL_SECONDS`, `AUTOSCALER_METRIC_NAME`, and
   `AUTOSCALER_LABELS=key=value,key2=value2`.
-- Continuous autoscaler runs expose `running_instances` on `/metrics`, using
+- Continuous autoscaler runs expose decision metrics on `/metrics`, using
   `AUTOSCALER_METRICS_HOST` and `AUTOSCALER_METRICS_PORT` for the bind address.
+- Decision gauges are `player_count`, `running_instances`, `desired_instances`,
+  `scaling_action` (-1 down, 0 unchanged, 1 up), `strategy{name="..."}` (value 1),
+  and `last_decision_timestamp_seconds`. Per-game mode adds appid to all of them;
+  legacy mode omits it. Registered strategies use their registry name; injected
+  unregistered ones use their class name.
+- Strategy info and running count are available before the first evaluation.
+  Other metrics appear only after success and are updated as one snapshot after
+  scaling. Failed queries preserve the snapshot and timestamp. Action is the
+  latest decision, not a counter. Grafana displays input versus source counts,
+  desired versus running instances, action, strategy, and decision age.
+- `promtool check metrics` flags the requested `player_count` gauge name because
+  `_count` is normally reserved for histogram/summary counts. Prometheus accepts
+  the metric; distinguish this naming lint warning from a text-format error.
 - Prometheus/client errors in the loop are logged and skipped; failed queries are
   not interpreted as zero players.
 - `SteamPlayerClient` queries Steam's current-player endpoint with an `appid` and

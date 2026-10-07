@@ -16,7 +16,9 @@ from scaler.exporter.autoscaler_metrics import (
 )
 from scaler.infrastructure.vm_controller import FakeVMController
 from scaler.game_config import GameConfig, load_games
-from scaler.strategies.registry import DEFAULT_STRATEGY, STRATEGIES, create_strategy
+from scaler.strategies.registry import (
+    DEFAULT_STRATEGY, STRATEGIES, create_strategy, strategy_name,
+)
 
 
 DEFAULT_PROMETHEUS_URL = "http://127.0.0.1:9090"
@@ -195,7 +197,10 @@ def evaluate_once(
     desired_instances = engine.strategy.desired_instances(player_count)
     running_instances = engine.apply_desired_instances(desired_instances)
     if metrics:
-        metrics.set_running_instances(running_instances, appid=metrics_appid)
+        metrics.record_decision(
+            player_count, current_instances, desired_instances, running_instances,
+            strategy_name(engine.strategy), appid=metrics_appid,
+        )
 
     if desired_instances > current_instances:
         action = f"scaled up by {desired_instances - current_instances}"
@@ -245,6 +250,9 @@ def run_loop(
         evaluations = [
             (None, config.label_filters, engine or build_engine(config.strategy_name))
         ]
+
+    for appid, labels, game_engine in evaluations:
+        metrics.set_strategy(strategy_name(game_engine.strategy), appid=appid)
 
     logger.info(
         "Starting autoscaler loop prometheus_url=%s metric_name=%s labels=%s "

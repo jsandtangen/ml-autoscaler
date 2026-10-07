@@ -43,6 +43,11 @@ def test_each_game_uses_its_own_strategy_and_query(caplog):
     body = metrics.render().decode()
     assert 'running_instances{appid="730"} 5' in body
     assert 'running_instances{appid="570"} 4' in body
+    assert 'player_count{appid="730"} 700000' in body
+    assert 'desired_instances{appid="730"} 5' in body
+    assert 'desired_instances{appid="570"} 4' in body
+    assert 'strategy{appid="730",name="aggressive"} 1' in body
+    assert 'strategy{appid="570",name="threshold"} 1' in body
     assert "appid=730 strategy=aggressive" in caplog.text
     assert "appid=570 strategy=threshold" in caplog.text
 
@@ -67,6 +72,8 @@ def test_each_game_retains_independent_state_across_cycles(monkeypatch, caplog):
     body = metrics.render().decode()
     assert 'running_instances{appid="730"} 2' in body
     assert 'running_instances{appid="570"} 2' in body
+    assert 'scaling_action{appid="730"} -1' in body
+    assert 'scaling_action{appid="570"} -1' in body
 
 
 def test_failure_for_one_game_preserves_state_and_other_game_continues(monkeypatch, caplog):
@@ -75,11 +82,15 @@ def test_failure_for_one_game_preserves_state_and_other_game_continues(monkeypat
     metrics = AutoscalerMetrics()
     monkeypatch.setattr("main.start_metrics_server", lambda *args: None)
     sleeps = []
+    snapshots = []
 
     def sleep(seconds):
         sleeps.append(seconds)
+        snapshots.append(metrics.render().decode())
         if len(sleeps) == 1:
             assert 'running_instances{appid="570"} 0' in metrics.render().decode()
+            assert 'player_count{appid="570"}' not in snapshots[-1]
+            assert 'scaling_action{appid="570"}' not in snapshots[-1]
         else:
             raise KeyboardInterrupt
 
@@ -91,3 +102,7 @@ def test_failure_for_one_game_preserves_state_and_other_game_continues(monkeypat
     assert 'running_instances{appid="570"} 2' in body
     assert "missing sample appid=730" in caplog.text
     assert "missing sample appid=570" in caplog.text
+    assert 'player_count{appid="730"} 700000' in body
+    assert 'scaling_action{appid="730"} 1' in body
+    first_game = lambda snapshot: [line for line in snapshot.splitlines() if 'appid="730"' in line]
+    assert first_game(snapshots[0]) == first_game(snapshots[1])
