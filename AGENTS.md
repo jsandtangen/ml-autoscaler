@@ -20,8 +20,9 @@ precedence over this guide.
 
 Ruby Acorn is an early Python autoscaler prototype. It reads game player counts
 from Prometheus, calculates a desired number of VM instances, and applies a
-scaling decision through a controller. The current implementation uses a fake,
-in-memory controller; it does not provision real VMs. Although the README names
+scaling decision through a controller. The default is a fake in-memory controller;
+an optional host Docker controller starts/stops bounded local containers, not
+full virtual machines. Although the README names
 the project `ml-autoscaler`, there is no implemented ML strategy yet.
 
 Repository facts checked on 2026-10-07:
@@ -67,6 +68,8 @@ work below is guidance, not a requirement to expand every task's scope.
 | `src/scaler/strategies/aggressive.py` | Threshold baseline plus one buffer instance |
 | `src/scaler/engine/decision_engine.py` | Compare desired/current counts and apply the difference |
 | `src/scaler/infrastructure/vm_controller.py` | In-memory `FakeVMController` |
+| `src/scaler/infrastructure/docker_controller.py` | Label-scoped local Docker resource controller |
+| `scripts/demo_docker_scaling.py` | Reproducible real-container demo with cleanup and JSON evidence |
 | `main.py` | Runnable autoscaler loop configured by CLI flags and environment variables |
 | `src/scaler/game_config.py` | Validated per-game TOML configuration |
 | `src/scaler/cost.py` | Simple hourly VM cost and fixed-baseline comparison |
@@ -97,7 +100,7 @@ work below is guidance, not a requirement to expand every task's scope.
   capacity over cost, with no delay or hysteresis. `threshold` remains the default.
 - `--games-config` or `AUTOSCALER_GAMES_CONFIG` loads a TOML file with
   `[games."APPID"]` tables containing `strategy`. Each game gets a separate
-  strategy, decision engine, and fake controller. Its appid and strategy override
+  strategy, decision engine, and selected controller. Its appid and strategy override
   global defaults; other label filters apply to all games. Invalid configuration
   fails at startup. Changes require restarting the loop.
 - In per-game mode, each cycle evaluates all configured games sequentially;
@@ -116,6 +119,22 @@ work below is guidance, not a requirement to expand every task's scope.
   require no scaling action.
 - Controllers expose `running_instances()`, `scale_up(count)`, and
   `scale_down(count)`. The fake starts at zero and clamps scale-down at zero.
+- `--controller` / `AUTOSCALER_CONTROLLER` selects `fake` (default) or `docker`.
+  Docker mode runs on the host with the Docker CLI, not inside the current Compose
+  image. `--docker-namespace` / `AUTOSCALER_DOCKER_NAMESPACE` scopes ownership;
+  each game has its own game label. One manager process must own each namespace.
+- Docker's namespace-wide limit is 1-5 containers via `--docker-max-instances` /
+  `AUTOSCALER_DOCKER_MAX_INSTANCES`, default 5. Limit breaches raise ControllerError;
+  desired counts are not silently clamped. Only managed/namespace/game-labeled
+  resources are counted or stopped. Containers use alpine:3.22, 32 MiB, 0.1 CPU,
+  32 PIDs, non-root, no network/host mounts, read-only root, and auto-removal.
+- Normal host loop exits leave Docker resources running; controllers rediscover
+  them on restart. `DockerController.cleanup()` explicitly removes only its scope.
+  The demo script uses a unique namespace, always attempts cleanup, and records
+  real container IDs in optional JSON reports under ignored `demo-results/`.
+- Infrastructure failures do not record successful decisions/events. The loop
+  refreshes actual counts after partial failures when possible. `--once` returns
+  failure on controller errors; continuous mode logs and retries next cycle.
 - `GameDataClient` defaults to metric `steam_player_count` and a five-second
   HTTP timeout. It queries `<prometheus_url>/api/v1/query` using `requests`.
 - `get_player_counts(label_filters)` returns `PlayerCountSample` objects with

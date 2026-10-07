@@ -1,3 +1,7 @@
+class ControllerError(Exception):
+    """Infrastructure operation failed; do not report successful scaling."""
+
+
 class FakeVMController:
     def __init__(self):
         self.instances = 0

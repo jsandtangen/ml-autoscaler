@@ -9,6 +9,67 @@ from scaler.infrastructure.vm_controller import FakeVMController
 from scaler.strategies.threshold import ThresholdStrategy
 from scaler.strategies.base import ScalingStrategy
 from scaler.strategies.registry import STRATEGIES
+from scaler.infrastructure.vm_controller import ControllerError
+from scaler.game_config import GameConfig
+from main import build_engine
+
+
+def test_controller_defaults_to_fake(monkeypatch):
+    monkeypatch.delenv("AUTOSCALER_CONTROLLER", raising=False)
+    config = load_config([])
+    assert config.controller_backend == "fake"
+    assert isinstance(build_engine(config=config).vm_controller, FakeVMController)
+
+
+def test_docker_backend_creates_one_controller_per_game(monkeypatch):
+    created = []
+    def factory(namespace, game, limit):
+        created.append((namespace, game, limit))
+        return FakeVMController()
+    monkeypatch.setattr("main.DockerController", factory)
+    config = AutoscalerConfig(
+        prometheus_url="http://prometheus.local", interval_seconds=1,
+        metric_name="steam_player_count", label_filters={}, run_once=True,
+        controller_backend="docker", docker_namespace="test",
+        games=(GameConfig("730", "aggressive"), GameConfig("570", "threshold")),
+    )
+    run_loop(config, client=FakeGameDataClient([700_000, 50]))
+    assert created == [("test", "730", 5), ("test", "570", 5)]
+
+
+def test_controller_configuration_cli_overrides_environment(monkeypatch):
+    monkeypatch.setenv("AUTOSCALER_CONTROLLER", "docker")
+    monkeypatch.setenv("AUTOSCALER_DOCKER_MAX_INSTANCES", "3")
+    assert load_config([]).controller_backend == "docker"
+    assert load_config([]).docker_max_instances == 3
+    assert load_config(["--controller", "fake"]).controller_backend == "fake"
+    assert load_config(["--docker-max-instances", "5"]).docker_max_instances == 5
+
+
+@pytest.mark.parametrize("argv", [["--controller", "unknown"], ["--docker-max-instances", "6"]])
+def test_invalid_controller_configuration_is_rejected(argv):
+    with pytest.raises(SystemExit) as error:
+        load_config(argv)
+    assert error.value.code == 2
+
+
+def test_partial_scaling_failure_refreshes_count_without_recording_success():
+    class FailingController(FakeVMController):
+        def scale_up(self, count):
+            self.instances = 1
+            raise ControllerError("simulated failure after starting one instance")
+    engine = DecisionEngine(ThresholdStrategy(), FailingController())
+    metrics = AutoscalerMetrics()
+    config = AutoscalerConfig(
+        prometheus_url="http://prometheus.local", interval_seconds=1,
+        metric_name="steam_player_count", label_filters={}, run_once=True,
+    )
+    with pytest.raises(ControllerError):
+        run_loop(config, client=FakeGameDataClient([700_000]), engine=engine, metrics=metrics)
+    body = metrics.render().decode()
+    assert "running_instances 1\n" in body
+    assert "scale_up_events_total 0\n" in body
+    assert "desired_instances 4\n" not in body
 
 
 def test_cost_configuration_defaults(monkeypatch):

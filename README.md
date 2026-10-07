@@ -187,7 +187,7 @@ mounts this file read-only at `/app/games.example.toml`; to enable it, set
 game assignments, or mount your own file and set its container path.
 
 With a games file, each game has its own strategy, decision engine, and
-in-memory fake VM controller. The game configuration overrides the global
+controller (fake by default). The game configuration overrides the global
 strategy and `appid` filter; other label filters (such as `region`) still apply
 to every game. Each query must match exactly one series. `--once` evaluates
 all configured games once; continuous mode evaluates them sequentially before
@@ -214,7 +214,7 @@ The autoscaler exports these gauges on `/metrics` (port 8001 by default):
 | Metric | Meaning |
 | --- | --- |
 | `player_count` | Player count actually used in the last successful evaluation |
-| `running_instances` | Current fake VM count |
+| `running_instances` | Current instance count reported by the selected controller |
 | `desired_instances` | Strategy's requested count in the last successful evaluation |
 | `scaling_action` | Last successful action: `-1` down, `0` unchanged, `1` up |
 | `strategy{name="aggressive"}` | Selected strategy; info-style gauge with value `1` |
@@ -303,7 +303,7 @@ rejected. The same price and fixed VM count apply separately to every game.
 
 The scaling dashboard shows dynamic cost, fixed baseline, and signed savings.
 Query failures retain the running allocation and therefore its estimated price;
-they do not imply free VMs. The estimates use the fake controller, not real
+they do not imply free VMs. The estimates use the controller's instance count, not real
 invoices. Storage, traffic, billing granularity, and real provider pricing are
 outside this model, and no cumulative-cost accounting is implemented.
 
@@ -334,3 +334,75 @@ Missing desired-instance metrics produce no comparison, not a healthy zero;
 query failures can leave an older decision visible, so check decision age.
 Costs are hourly estimates, not accumulated costs or invoices; negative savings
 remain visible when buffer capacity exceeds the fixed baseline.
+
+## Real local container scaling demo
+
+`--controller docker` selects `DockerController` behind the same
+`running_instances`, `scale_up`, and `scale_down` interface. `fake` remains the
+default; the normal Compose services keep using it. This backend starts and
+stops **real local Linux containers, not full virtual machines or game servers**.
+Confirm with the teacher whether containers satisfy the VM feasibility criterion.
+
+Run this on the host with Docker Desktop in Linux-container mode, the Docker CLI
+on PATH, and the project installed in the virtual environment:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/demo_docker_scaling.py --strategy threshold --prometheus-url http://127.0.0.1:9090 --report demo-results/threshold.json
+.\.venv\Scripts\python.exe scripts/demo_docker_scaling.py --strategy aggressive --report demo-results/aggressive.json
+```
+
+The reproducible scenario uses synthetic counts `50, 150, 700000, 50`:
+
+| Strategy | Observed running containers |
+| --- | --- |
+| `threshold` | 0 -> 1 -> 2 -> 4 -> 1 |
+| `aggressive` | 0 -> 2 -> 3 -> 5 -> 2 |
+
+The optional Prometheus URL adds a final evaluation using the live `appid=730`
+sample. Counts come from `docker ps`, and the JSON report records real container
+IDs at each step. Finally, the script removes its remaining containers and
+verifies zero remaining resources. The last cleanup to zero is demo cleanup,
+not a scaling decision: both existing strategies have a nonzero minimum.
+`demo-results/` is ignored by Git; reports are local generated evidence.
+
+To use the normal autoscaler against live Prometheus:
+
+```powershell
+.\.venv\Scripts\python.exe main.py --once --label appid=730 --controller docker --docker-namespace my-demo
+docker ps --filter label=ruby-acorn.managed=true --filter label=ruby-acorn.namespace=my-demo
+```
+
+Without `--once`, the host loop continues and exposes controller-backed metrics.
+Use `--metrics-port 8002` if the Compose autoscaler already occupies 8001; the
+default Prometheus target still scrapes Compose port 8001, so a host loop on
+8002 requires its own scrape target. This does not switch the existing stack's
+metrics from fake instances to Docker resources.
+
+Normal loop exit leaves resources running; restarting with the same namespace
+and game recovers the actual count from Docker. Stop and remove only those
+demo resources when finished:
+
+```powershell
+.\.venv\Scripts\python.exe -c "from scaler.infrastructure.docker_controller import DockerController; DockerController('my-demo', '730').cleanup()"
+```
+
+The backend uses `alpine:3.22` running `sleep infinity`, fetched by Docker if
+missing. Each container has a 32 MiB memory limit, 0.1 CPU limit, 32 PID limit,
+no network or host mounts, a read-only root filesystem, and an unprivileged
+user. Stopping it removes it automatically (`--rm`). Ownership is scoped by
+managed, namespace, and game labels; other containers are not scaling targets.
+Use one autoscaler process per namespace, and separate namespaces for independent
+demonstrations. The bounded prototype is not a concurrent fleet manager.
+
+`--docker-max-instances` / `AUTOSCALER_DOCKER_MAX_INSTANCES` sets a limit of 1-5
+containers **across all games in the namespace**, including stopped allocations.
+Exceeding it raises an error rather than changing the strategy's desired count.
+`AUTOSCALER_CONTROLLER` and `AUTOSCALER_DOCKER_NAMESPACE` also configure the host
+loop. The Compose Python image does not contain a Docker CLI or mounted Docker
+socket; this demonstration deliberately runs on the host.
+
+Controller failures are logged without recording a successful decision/event.
+After a partial failure, the loop refreshes the actual running count when Docker
+is reachable; if Docker is unavailable, the last known count remains visible.
+`--once` exits with code 1 on controller failure. Unit tests use an injected fake
+CLI runner and never start Docker; the demo commands are explicit live checks.

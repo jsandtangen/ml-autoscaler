@@ -224,7 +224,7 @@
           "refId": "B"
         }
       ],
-      "title": "Running and desired fake VM instances",
+      "title": "Running and desired instances",
       "type": "timeseries"
     },
     {

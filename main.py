@@ -15,7 +15,8 @@ from scaler.exporter.autoscaler_metrics import (
     AutoscalerMetricsConfig,
     start_metrics_server,
 )
-from scaler.infrastructure.vm_controller import FakeVMController
+from scaler.infrastructure.vm_controller import ControllerError, FakeVMController
+from scaler.infrastructure.docker_controller import DockerController
 from scaler.cost import CostModel
 from scaler.game_config import GameConfig, load_games
 from scaler.strategies.registry import (
@@ -45,6 +46,9 @@ class AutoscalerConfig:
     games: tuple[GameConfig, ...] = ()
     vm_cost_per_hour: float = 0.10
     fixed_baseline_instances: int = 4
+    controller_backend: str = "fake"
+    docker_namespace: str = "ruby-acorn-demo"
+    docker_max_instances: int = 5
 
 
 def parse_label_filter(value: str) -> tuple[str, str]:
@@ -124,6 +128,20 @@ def nonnegative_int(value: str) -> int:
 def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
     parser = argparse.ArgumentParser(description="Run the Ruby Acorn autoscaler loop.")
     parser.add_argument(
+        "--controller", choices=["fake", "docker"],
+        default=os.getenv("AUTOSCALER_CONTROLLER", "fake"),
+        help="Resource controller. Docker mode requires the host Docker CLI.",
+    )
+    parser.add_argument(
+        "--docker-namespace", default=os.getenv("AUTOSCALER_DOCKER_NAMESPACE", "ruby-acorn-demo"),
+        help="Ownership namespace for Docker demo containers.",
+    )
+    parser.add_argument(
+        "--docker-max-instances", type=positive_int, choices=range(1, 6),
+        default=os.getenv("AUTOSCALER_DOCKER_MAX_INSTANCES", "5"),
+        help="Maximum containers across all games in the namespace (1-5).",
+    )
+    parser.add_argument(
         "--vm-cost-per-hour", type=nonnegative_float,
         default=os.getenv("AUTOSCALER_VM_COST_PER_HOUR", "0.10"),
         help="Estimated EUR per VM-hour. Also AUTOSCALER_VM_COST_PER_HOUR.",
@@ -195,6 +213,10 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
     args = parser.parse_args(argv)
     if args.strategy not in STRATEGIES:
         parser.error(f"Unknown scaling strategy: {args.strategy}")
+    if args.controller not in {"fake", "docker"}:
+        parser.error(f"Unknown controller: {args.controller}")
+    if not 1 <= args.docker_max_instances <= 5:
+        parser.error("Docker demo limit must be between 1 and 5")
     label_filters = parse_env_label_filters(os.getenv("AUTOSCALER_LABELS"))
     label_filters.update(dict(args.label))
     try:
@@ -214,11 +236,24 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         games=games,
         vm_cost_per_hour=args.vm_cost_per_hour,
         fixed_baseline_instances=args.fixed_baseline_instances,
+        controller_backend=args.controller,
+        docker_namespace=args.docker_namespace,
+        docker_max_instances=args.docker_max_instances,
     )
 
 
-def build_engine(strategy_name: str = DEFAULT_STRATEGY) -> DecisionEngine:
-    return DecisionEngine(create_strategy(strategy_name), FakeVMController())
+def build_engine(
+    strategy_name: str = DEFAULT_STRATEGY,
+    config: AutoscalerConfig | None = None,
+    game: str = "default",
+) -> DecisionEngine:
+    if config is None or config.controller_backend == "fake":
+        controller = FakeVMController()
+    elif config.controller_backend == "docker":
+        controller = DockerController(config.docker_namespace, game, config.docker_max_instances)
+    else:
+        raise ValueError(f"Unknown controller: {config.controller_backend}")
+    return DecisionEngine(create_strategy(strategy_name), controller)
 
 
 def evaluate_once(
@@ -278,14 +313,16 @@ def run_loop(
         evaluations = []
         for game in config.games:
             labels = {**config.label_filters, "appid": game.appid}
-            evaluations.append((game.appid, labels, build_engine(game.strategy_name)))
+            evaluations.append((game.appid, labels, build_engine(game.strategy_name, config, game.appid)))
             metrics.set_running_instances(0, appid=game.appid)
             logger.info(
                 "Configured game appid=%s strategy=%s", game.appid, game.strategy_name
             )
     else:
         evaluations = [
-            (None, config.label_filters, engine or build_engine(config.strategy_name))
+            (None, config.label_filters, engine or build_engine(
+                config.strategy_name, config, config.label_filters.get("appid", "default")
+            ))
         ]
 
     for appid, labels, game_engine in evaluations:
@@ -294,12 +331,13 @@ def run_loop(
 
     logger.info(
         "Starting autoscaler loop prometheus_url=%s metric_name=%s labels=%s "
-        "interval_seconds=%s strategy=%s",
+        "interval_seconds=%s strategy=%s controller=%s",
         config.prometheus_url,
         config.metric_name,
         config.label_filters or "{}",
         config.interval_seconds,
         "per-game" if config.games else config.strategy_name,
+        config.controller_backend,
     )
     if not config.run_once:
         start_metrics_server(
@@ -317,6 +355,14 @@ def run_loop(
                     error,
                     labels.get("appid", "unspecified"),
                 )
+            except ControllerError as error:
+                logger.error("Scaling failed appid=%s: %s", labels.get("appid", "unspecified"), error)
+                try:
+                    metrics.set_running_instances(game_engine.vm_controller.running_instances(), appid=appid)
+                except ControllerError:
+                    logger.warning("Unable to refresh running instance count")
+                if config.run_once:
+                    raise
 
         if config.run_once:
             return
@@ -339,6 +385,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         run_loop(config)
     except KeyboardInterrupt:
         logger.info("Autoscaler loop stopped")
+    except (ControllerError, ValueError) as error:
+        logger.error("Autoscaler failed: %s", error)
+        return 1
 
     return 0
 

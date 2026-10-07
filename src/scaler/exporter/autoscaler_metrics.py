@@ -87,7 +87,7 @@ class AutoscalerMetrics:
 
         descriptions = {
             "player_count": "Player count used in the last successful decision.",
-            "running_instances": "Current number of fake VM instances.",
+            "running_instances": "Current number of running instances reported by the controller.",
             "desired_instances": "Desired instances from the last successful decision.",
             "scaling_action": "Last successful decision: -1 down, 0 unchanged, 1 up.",
             "strategy": "Selected scaling strategy identified by the name label.",
