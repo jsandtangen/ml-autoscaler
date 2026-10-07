@@ -34,11 +34,15 @@ Repository facts checked on 2026-10-07:
   `ThresholdStrategy`, `DecisionEngine`, and `FakeVMController`.
 - `requirements.txt` installs the local package using `pyproject.toml` metadata.
 - `Dockerfile` builds the loop/exporter image; Compose runs the Steam exporter,
-  Prometheus, and autoscaler.
+  Prometheus, Grafana, and autoscaler.
 - `.env.example` documents Compose defaults; `.env` is ignored by Git.
 - Prometheus scrapes itself and the included Steam exporter at
-  `steam-exporter:8000/metrics`. No real VM provider exists.
-- README.md documents local Docker setup, the required metric source, and the loop.
+  `steam-exporter:8000/metrics`, plus autoscaler metrics at
+  `autoscaler:8001/metrics`. No real VM provider exists.
+- Grafana is provisioned with a Prometheus datasource and a `Ruby Acorn
+  Autoscaler` dashboard for `steam_player_count` and `running_instances`.
+- README.md documents local Docker setup, the required metric source, Grafana,
+  and the loop.
 
 Verify these facts against the current files before relying on them. Proposed
 work below is guidance, not a requirement to expand every task's scope.
@@ -54,12 +58,14 @@ work below is guidance, not a requirement to expand every task's scope.
 | `src/scaler/infrastructure/vm_controller.py` | In-memory `FakeVMController` |
 | `main.py` | Runnable autoscaler loop configured by CLI flags and environment variables |
 | `src/scaler/exporter/steam_player_exporter.py` | Steam current-player client and Prometheus text exporter |
+| `src/scaler/exporter/autoscaler_metrics.py` | Prometheus text exporter for the autoscaler's fake running instance count |
 | `scripts/steam_player_exporter.py` | Script entrypoint for the Steam player exporter |
 | `scripts/inspect_prometheus.py` | Manual player-count query against local Prometheus |
 | `tests/` | Unit tests for the client, strategy, decision engine, and fake controller |
 | `pyproject.toml` | Packaging, Python requirement, dev dependencies, and pytest configuration |
 | `prometheus/prometheus.yml` | Self-scrape and external player-count exporter scrape configuration |
-| `docker-compose.yml` | Local Prometheus and autoscaler services with persistent metric storage |
+| `grafana/provisioning/` | Grafana datasource and dashboard provisioning |
+| `docker-compose.yml` | Local Prometheus, Grafana, exporter, and autoscaler services with persistent metric storage |
 | `Dockerfile` | Non-root Python autoscaler image |
 | `.env.example` | Compose configuration defaults |
 | `requirements.txt` | Runtime installation of the local package |
@@ -90,6 +96,8 @@ work below is guidance, not a requirement to expand every task's scope.
   filters and `--once` for a single evaluation. Environment alternatives are
   `PROMETHEUS_URL`, `AUTOSCALER_INTERVAL_SECONDS`, `AUTOSCALER_METRIC_NAME`, and
   `AUTOSCALER_LABELS=key=value,key2=value2`.
+- Continuous autoscaler runs expose `running_instances` on `/metrics`, using
+  `AUTOSCALER_METRICS_HOST` and `AUTOSCALER_METRICS_PORT` for the bind address.
 - Prometheus/client errors in the loop are logged and skipped; failed queries are
   not interpreted as zero players.
 - `SteamPlayerClient` queries Steam's current-player endpoint with an `appid` and
@@ -174,9 +182,10 @@ Validate Prometheus configuration with:
 docker compose run --rm --no-deps --entrypoint promtool prometheus check config /etc/prometheus/prometheus.yml
 ```
 
-Prometheus data persists in `prometheus_data`; `docker compose down -v` deletes
-it. The fake controller's count resets on autoscaler restart. Initial scrape or
-connection failures are handled by the loop's existing log-and-skip behavior.
+Prometheus data persists in `prometheus_data`; Grafana data persists in
+`grafana_data`; `docker compose down -v` deletes both. The fake controller's
+count resets on autoscaler restart. Initial scrape or connection failures are
+handled by the loop's existing log-and-skip behavior.
 Restart Prometheus after changing its YAML: `compose up --build` does not reload
 configuration in an unchanged, already running Prometheus container.
 
@@ -185,6 +194,12 @@ returned `steam_player_count{appid="730"}`, the `game_players` target was `up`,
 and an evaluation logged 724491 players and scaling from zero to four fake
 instances. The previous running stack lacked the exporter and needed a
 Prometheus restart to load the updated target. Recheck live status each session.
+
+On 2026-10-07, the observability chain was extended and verified live: the
+autoscaler exposed `running_instances` on port 8001, Prometheus returned
+`steam_player_count{appid="730"} = 730974` and `running_instances = 4`, and
+Grafana provisioned the `Ruby Acorn Autoscaler` dashboard. Recheck live values
+each session because Steam player counts and fake instance state change.
 
 On 2026-10-07, the broken `.venv` referenced a missing Python 3.11.1
 installation and was recreated with Python 3.11.13. Recheck the environment on

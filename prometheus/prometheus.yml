@@ -14,3 +14,8 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ["steam-exporter:8000"]
+
+  - job_name: autoscaler
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["autoscaler:8001"]

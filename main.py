@@ -9,6 +9,11 @@ from dataclasses import dataclass
 
 from scaler.data.client import GameDataClient, GameDataClientError
 from scaler.engine.decision_engine import DecisionEngine
+from scaler.exporter.autoscaler_metrics import (
+    AutoscalerMetrics,
+    AutoscalerMetricsConfig,
+    start_metrics_server,
+)
 from scaler.infrastructure.vm_controller import FakeVMController
 from scaler.strategies.threshold import ThresholdStrategy
 
@@ -16,6 +21,8 @@ from scaler.strategies.threshold import ThresholdStrategy
 DEFAULT_PROMETHEUS_URL = "http://127.0.0.1:9090"
 DEFAULT_INTERVAL_SECONDS = 30.0
 DEFAULT_METRIC_NAME = "steam_player_count"
+DEFAULT_METRICS_HOST = "0.0.0.0"
+DEFAULT_METRICS_PORT = 8001
 
 logger = logging.getLogger("ruby_acorn.autoscaler")
 
@@ -26,6 +33,8 @@ class AutoscalerConfig:
     interval_seconds: float
     metric_name: str
     label_filters: dict[str, str]
+    metrics_host: str = DEFAULT_METRICS_HOST
+    metrics_port: int = DEFAULT_METRICS_PORT
     run_once: bool = False
 
 
@@ -71,6 +80,18 @@ def positive_float(value: str) -> float:
     return parsed
 
 
+def positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"Expected an integer, got {value}") from error
+
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("Value must be greater than zero")
+
+    return parsed
+
+
 def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
     parser = argparse.ArgumentParser(description="Run the Ruby Acorn autoscaler loop.")
     parser.add_argument(
@@ -107,6 +128,19 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         action="store_true",
         help="Run one autoscaler evaluation and exit.",
     )
+    parser.add_argument(
+        "--metrics-host",
+        default=os.getenv("AUTOSCALER_METRICS_HOST", DEFAULT_METRICS_HOST),
+        help="Autoscaler metrics bind host. Can also be set with AUTOSCALER_METRICS_HOST.",
+    )
+    parser.add_argument(
+        "--metrics-port",
+        type=positive_int,
+        default=positive_int(
+            os.getenv("AUTOSCALER_METRICS_PORT", str(DEFAULT_METRICS_PORT))
+        ),
+        help="Autoscaler metrics port. Can also be set with AUTOSCALER_METRICS_PORT.",
+    )
 
     args = parser.parse_args(argv)
     label_filters = parse_env_label_filters(os.getenv("AUTOSCALER_LABELS"))
@@ -117,6 +151,8 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         interval_seconds=args.interval,
         metric_name=args.metric_name,
         label_filters=label_filters,
+        metrics_host=args.metrics_host,
+        metrics_port=args.metrics_port,
         run_once=args.once,
     )
 
@@ -129,11 +165,14 @@ def evaluate_once(
     client: GameDataClient,
     engine: DecisionEngine,
     label_filters: dict[str, str],
+    metrics: AutoscalerMetrics | None = None,
 ) -> int:
     player_count = client.get_player_count(label_filters)
     current_instances = engine.vm_controller.running_instances()
     desired_instances = engine.strategy.desired_instances(player_count)
     running_instances = engine.evaluate(player_count)
+    if metrics:
+        metrics.set_running_instances(running_instances)
 
     if desired_instances > current_instances:
         action = f"scaled up by {desired_instances - current_instances}"
@@ -159,6 +198,7 @@ def run_loop(
     config: AutoscalerConfig,
     client: GameDataClient | None = None,
     engine: DecisionEngine | None = None,
+    metrics: AutoscalerMetrics | None = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> None:
     client = client or GameDataClient(
@@ -166,6 +206,7 @@ def run_loop(
         metric_name=config.metric_name,
     )
     engine = engine or build_engine()
+    metrics = metrics or AutoscalerMetrics()
 
     logger.info(
         "Starting autoscaler loop prometheus_url=%s metric_name=%s labels=%s "
@@ -175,10 +216,15 @@ def run_loop(
         config.label_filters or "{}",
         config.interval_seconds,
     )
+    if not config.run_once:
+        start_metrics_server(
+            AutoscalerMetricsConfig(config.metrics_host, config.metrics_port),
+            metrics,
+        )
 
     while True:
         try:
-            evaluate_once(client, engine, config.label_filters)
+            evaluate_once(client, engine, config.label_filters, metrics)
         except GameDataClientError as error:
             logger.warning("Skipping autoscaler evaluation: %s", error)
 

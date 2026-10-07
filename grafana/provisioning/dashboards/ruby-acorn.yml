@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: Ruby Acorn
+    orgId: 1
+    folder: Ruby Acorn
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards

@@ -21,12 +21,14 @@ values in `.env`. The file is ignored by Git.
 Restart Prometheus after updating `prometheus/prometheus.yml`: rebuilding the
 Python images does not reload configuration in an existing Prometheus container.
 
-This starts the Steam player exporter, Prometheus, and the Python loop using
-`FakeVMController`. Prometheus is available at http://127.0.0.1:9090, with scrape
-status at http://127.0.0.1:9090/targets. Its data is stored in a named Docker
-volume with seven-day retention. The autoscaler connects to
-`http://prometheus:9090` on the Compose network; `PROMETHEUS_PORT` only changes
-the host-facing port.
+This starts the Steam player exporter, Prometheus, Grafana, and the Python loop
+using `FakeVMController`. Prometheus is available at http://127.0.0.1:9090, with
+scrape status at http://127.0.0.1:9090/targets. Grafana is available at
+http://127.0.0.1:3000 with the default local credentials `admin` / `admin`. Its
+provisioned `Ruby Acorn Autoscaler` dashboard shows `steam_player_count` and
+`running_instances`. Prometheus data is stored in a named Docker volume with
+seven-day retention. The autoscaler connects to `http://prometheus:9090` on the
+Compose network; `PROMETHEUS_PORT` only changes the host-facing port.
 
 ### Player-count source
 
@@ -49,6 +51,8 @@ Until the exporter is reachable and a sample has been scraped, the loop logs
 query warnings and skips scaling. The configured metric and label filters must
 match exactly one series; multiple matching series are rejected. No real VMs
 are created, and the fake instance count resets when the autoscaler restarts.
+The autoscaler also exposes its fake running instance count at
+http://127.0.0.1:8001/metrics as a Prometheus gauge named `running_instances`.
 
 Validate Prometheus configuration or run a single evaluation:
 
@@ -62,15 +66,18 @@ Verify the complete running data chain:
 ```powershell
 docker compose ps
 docker compose exec -T autoscaler python -c "from urllib.request import urlopen; print(urlopen('http://steam-exporter:8000/metrics', timeout=10).read().decode())"
+Invoke-RestMethod "http://127.0.0.1:8001/metrics"
 docker compose exec -T autoscaler python main.py --once
 docker compose logs --tail 10 autoscaler
 ```
 
-At http://127.0.0.1:9090/targets, `game_players` must be `UP`. Query
-`steam_player_count{appid="730"}` in Prometheus to check the scraped sample.
-The autoscaler log must contain `players`, `desired_instances`,
-`running_instances`, and `action`; a query warning means no decision was made.
-Use your configured app id and host port if you changed the defaults.
+At http://127.0.0.1:9090/targets, `game_players` and `autoscaler` must be `UP`.
+Query `steam_player_count{appid="730"}` and `running_instances` in Prometheus to
+check the scraped samples. The autoscaler log must contain `players`,
+`desired_instances`, `running_instances`, and `action`; a query warning means no
+decision was made. Use your configured app id and host port if you changed the
+defaults. The Grafana dashboard is provisioned from
+`grafana/provisioning/dashboards/ruby-acorn-dashboard.json`.
 
 Run the exporter directly on the host if you want to inspect its output without
 Compose:
@@ -80,7 +87,7 @@ Compose:
 ```
 
 Stop the services with `docker compose down`. This preserves Prometheus data.
-`docker compose down -v` also deletes that data.
+`docker compose down -v` also deletes Prometheus and Grafana data.
 
 ## Run the autoscaler loop
 

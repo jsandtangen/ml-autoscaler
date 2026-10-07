@@ -3,6 +3,7 @@ import logging
 from main import AutoscalerConfig, evaluate_once, load_config, run_loop
 from scaler.data.client import PrometheusQueryError
 from scaler.engine.decision_engine import DecisionEngine
+from scaler.exporter.autoscaler_metrics import AutoscalerMetrics
 from scaler.infrastructure.vm_controller import FakeVMController
 from scaler.strategies.threshold import ThresholdStrategy
 
@@ -27,6 +28,8 @@ def test_load_config_reads_environment_and_cli_labels(monkeypatch):
     monkeypatch.setenv("AUTOSCALER_INTERVAL_SECONDS", "5")
     monkeypatch.setenv("AUTOSCALER_METRIC_NAME", "custom_player_count")
     monkeypatch.setenv("AUTOSCALER_LABELS", "appid=730,region=eu")
+    monkeypatch.setenv("AUTOSCALER_METRICS_HOST", "127.0.0.1")
+    monkeypatch.setenv("AUTOSCALER_METRICS_PORT", "9001")
 
     config = load_config(["--label", "region=us", "--once"])
 
@@ -34,17 +37,21 @@ def test_load_config_reads_environment_and_cli_labels(monkeypatch):
     assert config.interval_seconds == 5
     assert config.metric_name == "custom_player_count"
     assert config.label_filters == {"appid": "730", "region": "us"}
+    assert config.metrics_host == "127.0.0.1"
+    assert config.metrics_port == 9001
     assert config.run_once is True
 
 
 def test_evaluate_once_logs_scaling_decision(caplog):
     client = FakeGameDataClient([150])
     engine = DecisionEngine(ThresholdStrategy(), FakeVMController())
+    metrics = AutoscalerMetrics()
 
     with caplog.at_level(logging.INFO, logger="ruby_acorn.autoscaler"):
-        running_instances = evaluate_once(client, engine, {"appid": "730"})
+        running_instances = evaluate_once(client, engine, {"appid": "730"}, metrics)
 
     assert running_instances == 2
+    assert "running_instances 2" in metrics.render().decode("utf-8")
     assert client.requests == [{"appid": "730"}]
     assert "players=150" in caplog.text
     assert "desired_instances=2" in caplog.text
