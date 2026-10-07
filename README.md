@@ -129,6 +129,25 @@ The default strategy is explicitly named `threshold`. Select it with
 `--strategy threshold` or `AUTOSCALER_STRATEGY=threshold` (also supported by
 Compose). Unknown strategy names are rejected at startup.
 
+Customers who prioritize spare capacity can select `aggressive` with
+`--strategy aggressive` or `AUTOSCALER_STRATEGY=aggressive`. It uses the same
+thresholds plus one extra VM as a buffer, including at zero players:
+
+| Player count | `threshold` | `aggressive` |
+| --- | --- | --- |
+| 0-99 | 1 VM | 2 VMs |
+| 100-299 | 2 VMs | 3 VMs |
+| 300-599 | 3 VMs | 4 VMs |
+| 600+ (including 700,000) | 4 VMs | 5 VMs |
+
+These are prototype thresholds, not validated capacity limits. `threshold`
+uses fewer VMs; `aggressive` trades that lower cost for extra capacity. Neither
+strategy delays scaling or guarantees that the capacity is sufficient.
+
+```powershell
+.\.venv\Scripts\python.exe main.py --once --label appid=730 --strategy aggressive
+```
+
 The scaling flow is `player_count -> strategy -> desired_instances`, followed by
 the decision engine applying the difference through `FakeVMController`.
 `ThresholdStrategy` implements the `ScalingStrategy.desired_instances` contract:

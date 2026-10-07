@@ -54,6 +54,7 @@ work below is guidance, not a requirement to expand every task's scope.
 | `src/scaler/data/client.py` | Prometheus HTTP queries, response parsing, player count samples and exceptions |
 | `src/scaler/strategies/base.py` | Abstract `ScalingStrategy` contract |
 | `src/scaler/strategies/threshold.py` | Current threshold-based instance calculation |
+| `src/scaler/strategies/aggressive.py` | Threshold baseline plus one buffer instance |
 | `src/scaler/engine/decision_engine.py` | Compare desired/current counts and apply the difference |
 | `src/scaler/infrastructure/vm_controller.py` | In-memory `FakeVMController` |
 | `main.py` | Runnable autoscaler loop configured by CLI flags and environment variables |
@@ -78,6 +79,9 @@ work below is guidance, not a requirement to expand every task's scope.
   unknown names fail at startup. Add algorithms there without changing the loop.
 - Each evaluation computes the desired count once; `DecisionEngine` applies it
   via `apply_desired_instances(desired)`. `evaluate(player_count)` remains available.
+- `aggressive` selects `AggressiveStrategy`: the threshold baseline plus one
+  buffer instance (2 at zero players, 5 at 600 or above). It prioritizes spare
+  capacity over cost, with no delay or hysteresis. `threshold` remains the default.
 - `ThresholdStrategy` returns 1 below 100 players, 2 from 100 to 299, 3 from
   300 to 599, and 4 at 600 or above. These are prototype values, not validated
   production capacity limits.

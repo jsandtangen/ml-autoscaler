@@ -31,6 +31,22 @@ def test_strategy_defaults_to_threshold(monkeypatch):
     assert load_config([]).strategy_name == "threshold"
 
 
+@pytest.mark.parametrize("source", ["cli", "environment"])
+@pytest.mark.parametrize("strategy, desired", [("threshold", 4), ("aggressive", 5)])
+def test_strategy_selection_scales_for_customer_preference(monkeypatch, source, strategy, desired):
+    monkeypatch.setenv("AUTOSCALER_STRATEGY", strategy if source == "environment" else "threshold")
+    argv = ["--once"]
+    if source == "cli":
+        argv.extend(["--strategy", strategy])
+    config = load_config(argv)
+    metrics = AutoscalerMetrics()
+
+    run_loop(config, client=FakeGameDataClient([700_000]), metrics=metrics)
+
+    assert config.strategy_name == strategy
+    assert f"running_instances {desired}" in metrics.render().decode("utf-8")
+
+
 @pytest.mark.parametrize("argv", [[], ["--strategy", "unknown"]])
 def test_unknown_strategy_is_rejected(monkeypatch, argv):
     monkeypatch.setenv("AUTOSCALER_STRATEGY", "unknown")

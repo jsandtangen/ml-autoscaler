@@ -1,9 +1,11 @@
 from .base import ScalingStrategy
+from .aggressive import AggressiveStrategy
 from .threshold import ThresholdStrategy
 
 
 DEFAULT_STRATEGY = "threshold"
 STRATEGIES: dict[str, type[ScalingStrategy]] = {
+    "aggressive": AggressiveStrategy,
     "threshold": ThresholdStrategy,
 }
 
