@@ -1,0 +1,30 @@
+services:
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v3.7.0}
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  autoscaler:
+    build: .
+    environment:
+      PROMETHEUS_URL: ${PROMETHEUS_URL:-http://prometheus:9090}
+      AUTOSCALER_INTERVAL_SECONDS: ${AUTOSCALER_INTERVAL_SECONDS:-30}
+      AUTOSCALER_METRIC_NAME: ${AUTOSCALER_METRIC_NAME:-steam_player_count}
+      AUTOSCALER_LABELS: ${AUTOSCALER_LABELS:-appid=730}
+    depends_on:
+      - prometheus
+    init: true
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:

@@ -1,4 +1,5 @@
 personal_notes.md
+.env
 .venv/
 __pycache__/
 .pytest_cache/

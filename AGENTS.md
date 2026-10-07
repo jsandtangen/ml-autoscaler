@@ -32,10 +32,12 @@ Repository facts checked on 2026-10-07:
 - Runtime dependencies include `requests`; tests use pytest via the `dev` extra.
 - `main.py` contains a runnable autoscaler loop using `GameDataClient`,
   `ThresholdStrategy`, `DecisionEngine`, and `FakeVMController`.
-- `requirements.txt`, `docker-compose.yml`, `.env.example`, and
-  `prometheus/prometheus.yml` are empty placeholders.
-- README.md documents the prototype loop. No exporter, deployment setup, or real
-  VM provider exists.
+- `requirements.txt` installs the local package using `pyproject.toml` metadata.
+- `Dockerfile` builds the loop image; Compose runs it alongside Prometheus.
+- `.env.example` documents Compose defaults; `.env` is ignored by Git.
+- Prometheus scrapes itself and expects an external player-count exporter at
+  `host.docker.internal:8000/metrics`. No exporter or real VM provider exists.
+- README.md documents local Docker setup, the required metric source, and the loop.
 
 Verify these facts against the current files before relying on them. Proposed
 work below is guidance, not a requirement to expand every task's scope.
@@ -53,8 +55,11 @@ work below is guidance, not a requirement to expand every task's scope.
 | `scripts/inspect_prometheus.py` | Manual player-count query against local Prometheus |
 | `tests/` | Unit tests for the client, strategy, decision engine, and fake controller |
 | `pyproject.toml` | Packaging, Python requirement, dev dependencies, and pytest configuration |
-| `prometheus/prometheus.yml` | Placeholder for Prometheus configuration |
-| `docker-compose.yml` | Placeholder for local service orchestration |
+| `prometheus/prometheus.yml` | Self-scrape and external player-count exporter scrape configuration |
+| `docker-compose.yml` | Local Prometheus and autoscaler services with persistent metric storage |
+| `Dockerfile` | Non-root Python autoscaler image |
+| `.env.example` | Compose configuration defaults |
+| `requirements.txt` | Runtime installation of the local package |
 
 ## Behavior and contracts
 
@@ -109,8 +114,8 @@ If the Windows launcher is unavailable, use another supported interpreter or
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Do not treat the empty `requirements.txt` as authoritative; dependencies are
-declared in `pyproject.toml`.
+`requirements.txt` installs the local package; dependency declarations remain
+in `pyproject.toml`.
 
 With a reachable Prometheus instance exposing the expected metric:
 
@@ -131,8 +136,33 @@ Run the continuous prototype loop:
 ```
 
 Editable installation makes `scaler` importable with the src layout. Prefer it
-over adding sys.path hacks. No supported Docker command is available until the
-placeholders are implemented.
+over adding sys.path hacks.
+
+With Docker Desktop running Linux containers:
+
+```powershell
+docker compose config --quiet
+docker compose up -d --build
+docker compose logs -f autoscaler
+docker compose down
+```
+
+Optionally copy `.env.example` to `.env` if no `.env` exists. Compose reads it;
+Python running directly on the host does not. In containers, use
+`http://prometheus:9090`; on the host, use `http://127.0.0.1:9090` (or the
+configured host port). Shell environment variables override Compose `.env`.
+Prometheus YAML does not expand those variables. The external exporter must
+be reachable from Docker and expose the configured metric and labels.
+
+Validate Prometheus configuration with:
+
+```powershell
+docker compose run --rm --no-deps --entrypoint promtool prometheus check config /etc/prometheus/prometheus.yml
+```
+
+Prometheus data persists in `prometheus_data`; `docker compose down -v` deletes
+it. The fake controller's count resets on autoscaler restart. Initial scrape or
+connection failures are handled by the loop's existing log-and-skip behavior.
 
 On 2026-10-07, the broken `.venv` referenced a missing Python 3.11.1
 installation and was recreated with Python 3.11.13. Recheck the environment on
@@ -163,11 +193,11 @@ checking it.
 
 ## Suggested next milestone
 
-The next useful milestone is a local demonstration environment around the loop:
+The next useful milestone is connecting a real metric source to the local setup:
 
-1. Fill `prometheus/prometheus.yml` and `docker-compose.yml` based on the actual
-   chosen metric source.
-2. Provide or document an exporter that exposes `steam_player_count`.
+1. Provide an exporter that exposes `steam_player_count` and configure its target
+   in `prometheus/prometheus.yml`.
+2. Verify the Compose stack end to end with that exporter and Docker running.
 3. Decide whether the loop should keep running after repeated metric failures,
    back off, or alert.
 4. Keep real VM control, ML strategies, cooldown/hysteresis, and production
