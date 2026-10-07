@@ -152,6 +152,11 @@ work below is guidance, not a requirement to expand every task's scope.
   `AUTOSCALER_LABELS=key=value,key2=value2`.
 - Continuous autoscaler runs expose decision metrics on `/metrics`, using
   `AUTOSCALER_METRICS_HOST` and `AUTOSCALER_METRICS_PORT` for the bind address.
+- `--player-history-path` / `AUTOSCALER_PLAYER_HISTORY_PATH` appends successful
+  player-count observations to CSV as `timestamp,appid,player_count`. Compose
+  defaults this to `/app/data/player_history.csv`, mounted from ignored local
+  `./data/`. Failed queries are not recorded as zero. This is raw history for
+  future predictive input-window training, not a scaling strategy.
 - Decision gauges are `player_count`, `running_instances`, `desired_instances`,
   `scaling_action` (-1 down, 0 unchanged, 1 up), `strategy{name="..."}` (value 1),
   and `last_decision_timestamp_seconds`. Per-game mode adds appid to all of them;

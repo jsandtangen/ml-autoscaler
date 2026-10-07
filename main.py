@@ -9,6 +9,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from scaler.data.client import GameDataClient, GameDataClientError
+from scaler.data.history import PlayerHistoryStore
 from scaler.engine.decision_engine import DecisionEngine
 from scaler.exporter.autoscaler_metrics import (
     AutoscalerMetrics,
@@ -49,6 +50,7 @@ class AutoscalerConfig:
     controller_backend: str = "fake"
     docker_namespace: str = "ruby-acorn-demo"
     docker_max_instances: int = 5
+    player_history_path: str | None = None
 
 
 def parse_label_filter(value: str) -> tuple[str, str]:
@@ -209,6 +211,14 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         ),
         help="Autoscaler metrics port. Can also be set with AUTOSCALER_METRICS_PORT.",
     )
+    parser.add_argument(
+        "--player-history-path",
+        default=os.getenv("AUTOSCALER_PLAYER_HISTORY_PATH"),
+        help=(
+            "CSV file for historical player-count samples. "
+            "Can also be set with AUTOSCALER_PLAYER_HISTORY_PATH."
+        ),
+    )
 
     args = parser.parse_args(argv)
     if args.strategy not in STRATEGIES:
@@ -239,6 +249,7 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         controller_backend=args.controller,
         docker_namespace=args.docker_namespace,
         docker_max_instances=args.docker_max_instances,
+        player_history_path=args.player_history_path,
     )
 
 
@@ -262,8 +273,11 @@ def evaluate_once(
     label_filters: dict[str, str],
     metrics: AutoscalerMetrics | None = None,
     metrics_appid: str | None = None,
+    history: PlayerHistoryStore | None = None,
 ) -> int:
     player_count = client.get_player_count(label_filters)
+    if history:
+        history.record(player_count, appid=metrics_appid or label_filters.get("appid"))
     current_instances = engine.vm_controller.running_instances()
     desired_instances = engine.strategy.desired_instances(player_count)
     running_instances = engine.apply_desired_instances(desired_instances)
@@ -307,6 +321,7 @@ def run_loop(
     )
     metrics = metrics or AutoscalerMetrics()
     metrics.set_cost_model(CostModel(config.vm_cost_per_hour, config.fixed_baseline_instances))
+    history = PlayerHistoryStore(config.player_history_path) if config.player_history_path else None
     if config.games:
         if engine is not None:
             raise ValueError("A shared engine cannot be used with per-game configuration")
@@ -331,13 +346,14 @@ def run_loop(
 
     logger.info(
         "Starting autoscaler loop prometheus_url=%s metric_name=%s labels=%s "
-        "interval_seconds=%s strategy=%s controller=%s",
+        "interval_seconds=%s strategy=%s controller=%s history_path=%s",
         config.prometheus_url,
         config.metric_name,
         config.label_filters or "{}",
         config.interval_seconds,
         "per-game" if config.games else config.strategy_name,
         config.controller_backend,
+        config.player_history_path or "disabled",
     )
     if not config.run_once:
         start_metrics_server(
@@ -348,7 +364,9 @@ def run_loop(
     while True:
         for appid, labels, game_engine in evaluations:
             try:
-                evaluate_once(client, game_engine, labels, metrics, metrics_appid=appid)
+                evaluate_once(
+                    client, game_engine, labels, metrics, metrics_appid=appid, history=history
+                )
             except GameDataClientError as error:
                 logger.warning(
                     "Skipping autoscaler evaluation: %s appid=%s",

@@ -53,6 +53,11 @@ match exactly one series; multiple matching series are rejected. No real VMs
 are created, and the fake instance count resets when the autoscaler restarts.
 The autoscaler also exposes its fake running instance count at
 http://127.0.0.1:8001/metrics as a Prometheus gauge named `running_instances`.
+Compose also writes successful player-count observations to
+`./data/player_history.csv` as append-only CSV with
+`timestamp,appid,player_count`. This is the raw historical dataset intended for
+future predictive models that need input windows instead of only the latest
+Prometheus value.
 
 Validate Prometheus configuration or run a single evaluation:
 
@@ -159,6 +164,29 @@ the autoscaler loop does not need algorithm-specific changes.
 The loop logs and
 skips Prometheus/client errors instead of treating missing or invalid metrics as
 zero players.
+
+### Historical player data
+
+A predictive model needs historical samples, not only the latest value returned
+by Prometheus. Enable CSV history with `--player-history-path` or
+`AUTOSCALER_PLAYER_HISTORY_PATH`:
+
+```powershell
+.\.venv\Scripts\python.exe main.py --label appid=730 --player-history-path data/player_history.csv
+```
+
+Each successful Prometheus query appends one row:
+
+```csv
+timestamp,appid,player_count
+1760000000.123,730,700000
+```
+
+Failed queries are skipped and are not recorded as zero. In per-game mode, the
+`appid` column distinguishes games. Compose enables this by default at
+`/app/data/player_history.csv`, mounted to `./data/player_history.csv` on the
+host. The `data/` directory is ignored by Git because it is generated training
+data.
 
 ### Strategies per game
 

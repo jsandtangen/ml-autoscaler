@@ -3,6 +3,7 @@ import pytest
 
 from main import AutoscalerConfig, evaluate_once, load_config, run_loop
 from scaler.data.client import PrometheusQueryError
+from scaler.data.history import PlayerHistoryStore
 from scaler.engine.decision_engine import DecisionEngine
 from scaler.exporter.autoscaler_metrics import AutoscalerMetrics
 from scaler.infrastructure.vm_controller import FakeVMController
@@ -188,6 +189,7 @@ def test_load_config_reads_environment_and_cli_labels(monkeypatch):
     monkeypatch.setenv("AUTOSCALER_LABELS", "appid=730,region=eu")
     monkeypatch.setenv("AUTOSCALER_METRICS_HOST", "127.0.0.1")
     monkeypatch.setenv("AUTOSCALER_METRICS_PORT", "9001")
+    monkeypatch.setenv("AUTOSCALER_PLAYER_HISTORY_PATH", "history.csv")
 
     config = load_config(["--label", "region=us", "--once"])
 
@@ -197,6 +199,7 @@ def test_load_config_reads_environment_and_cli_labels(monkeypatch):
     assert config.label_filters == {"appid": "730", "region": "us"}
     assert config.metrics_host == "127.0.0.1"
     assert config.metrics_port == 9001
+    assert config.player_history_path == "history.csv"
     assert config.run_once is True
 
 
@@ -219,6 +222,40 @@ def test_evaluate_once_logs_scaling_decision(caplog):
     assert "players=150" in caplog.text
     assert "desired_instances=2" in caplog.text
     assert "scaled up by 2" in caplog.text
+
+
+def test_evaluate_once_records_player_history(tmp_path):
+    client = FakeGameDataClient([150])
+    engine = DecisionEngine(ThresholdStrategy(), FakeVMController())
+    history = PlayerHistoryStore(tmp_path / "history.csv", clock=lambda: 1234.5)
+
+    evaluate_once(client, engine, {"appid": "730"}, history=history)
+
+    assert (tmp_path / "history.csv").read_text(encoding="utf-8").splitlines() == [
+        "timestamp,appid,player_count",
+        "1234.500,730,150",
+    ]
+
+
+def test_run_loop_writes_per_game_history(tmp_path):
+    config = AutoscalerConfig(
+        prometheus_url="http://prometheus.local",
+        interval_seconds=1,
+        metric_name="steam_player_count",
+        label_filters={},
+        run_once=True,
+        player_history_path=str(tmp_path / "history.csv"),
+        games=(GameConfig("730", "aggressive"), GameConfig("570", "threshold")),
+    )
+
+    run_loop(config, client=FakeGameDataClient([700_000, 150]))
+
+    lines = (tmp_path / "history.csv").read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "timestamp,appid,player_count"
+    assert [line.split(",", 1)[1] for line in lines[1:]] == [
+        "730,700000",
+        "570,150",
+    ]
 
 
 def test_run_loop_once_skips_failed_prometheus_query(caplog):

@@ -43,8 +43,10 @@ services:
       AUTOSCALER_METRICS_PORT: 8001
       AUTOSCALER_VM_COST_PER_HOUR: ${AUTOSCALER_VM_COST_PER_HOUR:-0.10}
       AUTOSCALER_FIXED_BASELINE_INSTANCES: ${AUTOSCALER_FIXED_BASELINE_INSTANCES:-4}
+      AUTOSCALER_PLAYER_HISTORY_PATH: ${AUTOSCALER_PLAYER_HISTORY_PATH:-/app/data/player_history.csv}
     volumes:
       - ./games.example.toml:/app/games.example.toml:ro
+      - ./data:/app/data
     depends_on:
       - prometheus
       - steam-exporter
