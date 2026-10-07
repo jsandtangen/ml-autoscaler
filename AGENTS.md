@@ -30,10 +30,12 @@ Repository facts checked on 2026-10-07:
 - Import package: `scaler`, located under `src/`. Use this name for imports.
 - Python requirement: `>=3.11`; build backend: setuptools.
 - Runtime dependencies include `requests`; tests use pytest via the `dev` extra.
-- `main.py`, `requirements.txt`, `docker-compose.yml`, `.env.example`, and
+- `main.py` contains a runnable autoscaler loop using `GameDataClient`,
+  `ThresholdStrategy`, `DecisionEngine`, and `FakeVMController`.
+- `requirements.txt`, `docker-compose.yml`, `.env.example`, and
   `prometheus/prometheus.yml` are empty placeholders.
-- README.md contains only a project title. No complete application entry point,
-  autoscaling loop, exporter, deployment setup, or real VM provider exists.
+- README.md documents the prototype loop. No exporter, deployment setup, or real
+  VM provider exists.
 
 Verify these facts against the current files before relying on them. Proposed
 work below is guidance, not a requirement to expand every task's scope.
@@ -47,6 +49,7 @@ work below is guidance, not a requirement to expand every task's scope.
 | `src/scaler/strategies/threshold.py` | Current threshold-based instance calculation |
 | `src/scaler/engine/decision_engine.py` | Compare desired/current counts and apply the difference |
 | `src/scaler/infrastructure/vm_controller.py` | In-memory `FakeVMController` |
+| `main.py` | Runnable autoscaler loop configured by CLI flags and environment variables |
 | `scripts/inspect_prometheus.py` | Manual player-count query against local Prometheus |
 | `tests/` | Unit tests for the client, strategy, decision engine, and fake controller |
 | `pyproject.toml` | Packaging, Python requirement, dev dependencies, and pytest configuration |
@@ -74,6 +77,13 @@ work below is guidance, not a requirement to expand every task's scope.
   request/query failures and `PrometheusResponseError` for malformed responses.
 - The inspection script uses `http://127.0.0.1:9090` and `appid="730"`. These are
   script defaults, not a configured environment. No exporter is supplied here.
+- The autoscaler loop in `main.py` defaults to `http://127.0.0.1:9090`,
+  `steam_player_count`, and a 30-second interval. It accepts `--label KEY=VALUE`
+  filters and `--once` for a single evaluation. Environment alternatives are
+  `PROMETHEUS_URL`, `AUTOSCALER_INTERVAL_SECONDS`, `AUTOSCALER_METRIC_NAME`, and
+  `AUTOSCALER_LABELS=key=value,key2=value2`.
+- Prometheus/client errors in the loop are logged and skipped; failed queries are
+  not interpreted as zero players.
 
 Keep metrics retrieval, scaling policy, orchestration, and infrastructure control
 separate. New strategies should implement the existing strategy contract;
@@ -108,9 +118,21 @@ With a reachable Prometheus instance exposing the expected metric:
 .\.venv\Scripts\python.exe scripts/inspect_prometheus.py
 ```
 
+Run one autoscaler evaluation:
+
+```powershell
+.\.venv\Scripts\python.exe main.py --once --label appid=730
+```
+
+Run the continuous prototype loop:
+
+```powershell
+.\.venv\Scripts\python.exe main.py --interval 30 --label appid=730
+```
+
 Editable installation makes `scaler` importable with the src layout. Prefer it
-over adding sys.path hacks. No supported application-start or Docker command is
-available until the placeholders are implemented.
+over adding sys.path hacks. No supported Docker command is available until the
+placeholders are implemented.
 
 On 2026-10-07, the broken `.venv` referenced a missing Python 3.11.1
 installation and was recreated with Python 3.11.13. Recheck the environment on
@@ -141,18 +163,15 @@ checking it.
 
 ## Suggested next milestone
 
-The next useful milestone is a runnable demonstration connecting the existing
-components:
+The next useful milestone is a local demonstration environment around the loop:
 
-1. Establish a working Python environment, declare runtime dependencies, and
-   run the existing test suite.
-2. Add an entry point that reads configuration, obtains one player count,
-   evaluates it through `DecisionEngine` with `ThresholdStrategy` and
-   `FakeVMController`, and logs the decision at a configurable interval.
-3. Define behavior for unavailable/invalid metrics before enabling the loop;
-   do not interpret a failed query as zero players.
-4. Document setup and operation in README.md and fill service configuration
-   based on the actual chosen metric source.
+1. Fill `prometheus/prometheus.yml` and `docker-compose.yml` based on the actual
+   chosen metric source.
+2. Provide or document an exporter that exposes `steam_player_count`.
+3. Decide whether the loop should keep running after repeated metric failures,
+   back off, or alert.
+4. Keep real VM control, ML strategies, cooldown/hysteresis, and production
+   deployment as future design work unless explicitly requested.
 
 Real VM control, ML strategies, cooldown/hysteresis, and production deployment
 remain future design work unless explicitly requested.
