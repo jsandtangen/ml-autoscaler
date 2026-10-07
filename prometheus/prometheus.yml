@@ -8,9 +8,9 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:9090"]
 
-  # Supply an exporter on the host, or replace this target with your exporter.
-  # It must expose steam_player_count{appid="730"} at /metrics.
+  # The Compose stack provides this exporter. Replace the target if you run
+  # another exporter elsewhere.
   - job_name: game_players
     metrics_path: /metrics
     static_configs:
-      - targets: ["host.docker.internal:8000"]
+      - targets: ["steam-exporter:8000"]

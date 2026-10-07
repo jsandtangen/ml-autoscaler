@@ -1,4 +1,16 @@
 services:
+  steam-exporter:
+    build: .
+    command: ["python", "scripts/steam_player_exporter.py"]
+    environment:
+      STEAM_APPID: ${STEAM_APPID:-730}
+      STEAM_EXPORTER_HOST: 0.0.0.0
+      STEAM_EXPORTER_PORT: 8000
+      STEAM_EXPORTER_METRIC_NAME: ${AUTOSCALER_METRIC_NAME:-steam_player_count}
+      STEAM_REQUEST_TIMEOUT_SECONDS: ${STEAM_REQUEST_TIMEOUT_SECONDS:-5}
+    init: true
+    restart: unless-stopped
+
   prometheus:
     image: ${PROMETHEUS_IMAGE:-prom/prometheus:v3.7.0}
     command:
@@ -12,6 +24,8 @@ services:
       - prometheus_data:/prometheus
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      - steam-exporter
     restart: unless-stopped
 
   autoscaler:
@@ -23,6 +37,7 @@ services:
       AUTOSCALER_LABELS: ${AUTOSCALER_LABELS:-appid=730}
     depends_on:
       - prometheus
+      - steam-exporter
     init: true
     restart: unless-stopped
 

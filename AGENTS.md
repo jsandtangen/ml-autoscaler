@@ -33,10 +33,11 @@ Repository facts checked on 2026-10-07:
 - `main.py` contains a runnable autoscaler loop using `GameDataClient`,
   `ThresholdStrategy`, `DecisionEngine`, and `FakeVMController`.
 - `requirements.txt` installs the local package using `pyproject.toml` metadata.
-- `Dockerfile` builds the loop image; Compose runs it alongside Prometheus.
+- `Dockerfile` builds the loop/exporter image; Compose runs the Steam exporter,
+  Prometheus, and autoscaler.
 - `.env.example` documents Compose defaults; `.env` is ignored by Git.
-- Prometheus scrapes itself and expects an external player-count exporter at
-  `host.docker.internal:8000/metrics`. No exporter or real VM provider exists.
+- Prometheus scrapes itself and the included Steam exporter at
+  `steam-exporter:8000/metrics`. No real VM provider exists.
 - README.md documents local Docker setup, the required metric source, and the loop.
 
 Verify these facts against the current files before relying on them. Proposed
@@ -52,6 +53,8 @@ work below is guidance, not a requirement to expand every task's scope.
 | `src/scaler/engine/decision_engine.py` | Compare desired/current counts and apply the difference |
 | `src/scaler/infrastructure/vm_controller.py` | In-memory `FakeVMController` |
 | `main.py` | Runnable autoscaler loop configured by CLI flags and environment variables |
+| `src/scaler/exporter/steam_player_exporter.py` | Steam current-player client and Prometheus text exporter |
+| `scripts/steam_player_exporter.py` | Script entrypoint for the Steam player exporter |
 | `scripts/inspect_prometheus.py` | Manual player-count query against local Prometheus |
 | `tests/` | Unit tests for the client, strategy, decision engine, and fake controller |
 | `pyproject.toml` | Packaging, Python requirement, dev dependencies, and pytest configuration |
@@ -89,6 +92,9 @@ work below is guidance, not a requirement to expand every task's scope.
   `AUTOSCALER_LABELS=key=value,key2=value2`.
 - Prometheus/client errors in the loop are logged and skipped; failed queries are
   not interpreted as zero players.
+- `SteamPlayerClient` queries Steam's current-player endpoint with an `appid` and
+  exposes the count as `steam_player_count{appid="..."}` through `/metrics`.
+  Exporter fetch/response errors return HTTP 503 and are not emitted as zero.
 
 Keep metrics retrieval, scaling policy, orchestration, and infrastructure control
 separate. New strategies should implement the existing strategy contract;
@@ -123,6 +129,12 @@ With a reachable Prometheus instance exposing the expected metric:
 .\.venv\Scripts\python.exe scripts/inspect_prometheus.py
 ```
 
+Run the Steam player exporter directly on the host:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/steam_player_exporter.py --host 127.0.0.1 --port 8000
+```
+
 Run one autoscaler evaluation:
 
 ```powershell
@@ -151,8 +163,9 @@ Optionally copy `.env.example` to `.env` if no `.env` exists. Compose reads it;
 Python running directly on the host does not. In containers, use
 `http://prometheus:9090`; on the host, use `http://127.0.0.1:9090` (or the
 configured host port). Shell environment variables override Compose `.env`.
-Prometheus YAML does not expand those variables. The external exporter must
-be reachable from Docker and expose the configured metric and labels.
+Prometheus YAML does not expand those variables. The included exporter uses
+`STEAM_APPID`, `STEAM_EXPORTER_METRIC_NAME`, and
+`STEAM_REQUEST_TIMEOUT_SECONDS`.
 
 Validate Prometheus configuration with:
 
@@ -193,14 +206,15 @@ checking it.
 
 ## Suggested next milestone
 
-The next useful milestone is connecting a real metric source to the local setup:
+The next useful milestone is verifying the Compose stack end to end with Docker
+running:
 
-1. Provide an exporter that exposes `steam_player_count` and configure its target
-   in `prometheus/prometheus.yml`.
-2. Verify the Compose stack end to end with that exporter and Docker running.
-3. Decide whether the loop should keep running after repeated metric failures,
+1. Start the exporter, Prometheus, and autoscaler with `docker compose up -d --build`.
+2. Confirm that Prometheus has scraped `steam_player_count{appid="730"}`.
+3. Run one autoscaler evaluation against the scraped metric.
+4. Decide whether the loop should keep running after repeated metric failures,
    back off, or alert.
-4. Keep real VM control, ML strategies, cooldown/hysteresis, and production
+5. Keep real VM control, ML strategies, cooldown/hysteresis, and production
    deployment as future design work unless explicitly requested.
 
 Real VM control, ML strategies, cooldown/hysteresis, and production deployment

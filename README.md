@@ -17,29 +17,29 @@ Only copy `.env.example` if you do not already have a `.env` file. Compose uses
 the example defaults even without `.env`. Shell environment variables override
 values in `.env`. The file is ignored by Git.
 
-This starts Prometheus and the Python loop using `FakeVMController`. Prometheus
-is available at http://127.0.0.1:9090, with scrape status at
-http://127.0.0.1:9090/targets. Its data is stored in a named Docker volume with
-seven-day retention. The autoscaler connects to `http://prometheus:9090` on the
-Compose network; `PROMETHEUS_PORT` only changes the host-facing port.
+This starts the Steam player exporter, Prometheus, and the Python loop using
+`FakeVMController`. Prometheus is available at http://127.0.0.1:9090, with scrape
+status at http://127.0.0.1:9090/targets. Its data is stored in a named Docker
+volume with seven-day retention. The autoscaler connects to
+`http://prometheus:9090` on the Compose network; `PROMETHEUS_PORT` only changes
+the host-facing port.
 
 ### Player-count source
 
-An exporter is **not included**. The `game_players` job in
-`prometheus/prometheus.yml` expects an HTTP exporter on the host at port 8000,
-serving `/metrics` in Prometheus text format, for example:
+The Compose stack includes a small Steam exporter. It queries Steam's current
+player-count endpoint for `STEAM_APPID` (default `730`) and serves `/metrics` in
+Prometheus text format:
 
 ```text
-# HELP steam_player_count Current game player count.
+# HELP steam_player_count Current Steam player count.
 # TYPE steam_player_count gauge
 steam_player_count{appid="730"} 150
 ```
 
-The exporter must be reachable from Docker (listen on a suitable interface,
-typically `0.0.0.0`, rather than only loopback). Replace
-`host.docker.internal:8000` with your actual exporter address if needed.
-Prometheus configuration does not interpolate `.env` variables. After changing
-the scrape target, run `docker compose restart prometheus`.
+Prometheus scrapes the exporter at `steam-exporter:8000`. Replace that target in
+`prometheus/prometheus.yml` if you run another exporter elsewhere. Prometheus
+configuration does not interpolate `.env` variables. After changing the scrape
+target, run `docker compose restart prometheus`.
 
 Until the exporter is reachable and a sample has been scraped, the loop logs
 query warnings and skips scaling. The configured metric and label filters must
@@ -51,6 +51,13 @@ Validate Prometheus configuration or run a single evaluation:
 ```powershell
 docker compose run --rm --no-deps --entrypoint promtool prometheus check config /etc/prometheus/prometheus.yml
 docker compose run --rm autoscaler python main.py --once
+```
+
+Run the exporter directly on the host if you want to inspect its output without
+Compose:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/steam_player_exporter.py --host 127.0.0.1 --port 8000
 ```
 
 Stop the services with `docker compose down`. This preserves Prometheus data.
