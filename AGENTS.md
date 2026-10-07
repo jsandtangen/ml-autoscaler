@@ -45,6 +45,12 @@ Repository facts checked on 2026-10-07:
   `grafana/provisioning/dashboards/ruby-acorn-scaling-dashboard.json`. It has an
   appid selector, decision input, desired/running counts, strategy, event counts,
   and decision age. Links connect both dashboards.
+- `Ruby Acorn Customer Costs` is the third dashboard, provisioned from
+  `grafana/provisioning/dashboards/ruby-acorn-customer-dashboard.json`. It has a
+  game selector, aggregate VM count and EUR/hour cost/baseline/savings, per-game
+  trends, strategy information, and a below-strategy-target capacity indicator.
+  It does not estimate real player capacity or cumulative spending. Links connect
+  all three dashboards, with game selection shared by scaling/customer views.
 - README.md documents local Docker setup, the required metric source, Grafana,
   and the loop.
 

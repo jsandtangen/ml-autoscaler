@@ -25,6 +25,13 @@
       "url": "/d/ruby-acorn-scaling/ruby-acorn-scaling",
       "keepTime": true,
       "targetBlank": false
+    },
+    {
+      "title": "Customer costs",
+      "type": "link",
+      "url": "/d/ruby-acorn-customer/ruby-acorn-customer-costs",
+      "keepTime": true,
+      "targetBlank": false
     }
   ],
   "panels": [

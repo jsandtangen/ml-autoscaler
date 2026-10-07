@@ -25,6 +25,14 @@
       "keepTime": true,
       "includeVars": false,
       "targetBlank": false
+    },
+    {
+      "title": "Customer costs",
+      "type": "link",
+      "url": "/d/ruby-acorn-customer/ruby-acorn-customer-costs",
+      "keepTime": true,
+      "includeVars": true,
+      "targetBlank": false
     }
   ],
   "templating": {

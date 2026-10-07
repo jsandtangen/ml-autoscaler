@@ -248,9 +248,10 @@ is retained for the decision input gauge; Prometheus scrapes and queries it.
 
 ### Scaling dashboard
 
-Grafana provisions two dashboards in the `Ruby Acorn` folder:
+Grafana provisions three dashboards in the `Ruby Acorn` folder:
 
 - `Ruby Acorn Autoscaler`: operational overview.
+- `Ruby Acorn Customer Costs`: customer capacity and hourly cost comparison.
 - `Ruby Acorn Scaling`: player count, desired and running instances, scaling
   events, selected strategy, and decision age. Open
   http://127.0.0.1:3000/d/ruby-acorn-scaling/ruby-acorn-scaling.
@@ -305,3 +306,31 @@ Query failures retain the running allocation and therefore its estimated price;
 they do not imply free VMs. The estimates use the fake controller, not real
 invoices. Storage, traffic, billing granularity, and real provider pricing are
 outside this model, and no cumulative-cost accounting is implemented.
+
+### Customer cost dashboard
+
+Open http://127.0.0.1:3000/d/ruby-acorn-customer/ruby-acorn-customer-costs.
+The dashboard is provisioned from
+`grafana/provisioning/dashboards/ruby-acorn-customer-dashboard.json` and focuses
+on the customer's capacity and cost rather than scaling events:
+
+- Current VM count across the selected games.
+- Estimated dynamic cost, fixed baseline cost, and signed savings in EUR/hour.
+- Below-target indicator and missing VM count relative to each game's strategy.
+- Cost versus baseline over time, savings per game, and current VMs per game.
+- Selected strategies and the age of the oldest available decision.
+
+The `Game` selector supports one or multiple appids; `All` includes legacy
+unlabeled single-game mode. Top-level numbers sum the selected games. Cost
+queries use the `autoscaler` scrape job to avoid mixing unrelated metrics.
+Links connect all three dashboards; the scaling and customer views preserve
+the game selection and time range.
+
+`Below strategy target` checks each game's running count against its desired
+count; one under-target game makes the indicator red even if another has spare
+VMs. The fake controller applies scaling immediately, so it normally shows
+`At or above target`. It does not measure actual player capacity or an SLA.
+Missing desired-instance metrics produce no comparison, not a healthy zero;
+query failures can leave an older decision visible, so check decision age.
+Costs are hourly estimates, not accumulated costs or invoices; negative savings
+remain visible when buffer capacity exceeds the fixed baseline.
