@@ -58,6 +58,8 @@ work below is guidance, not a requirement to expand every task's scope.
 | `src/scaler/engine/decision_engine.py` | Compare desired/current counts and apply the difference |
 | `src/scaler/infrastructure/vm_controller.py` | In-memory `FakeVMController` |
 | `main.py` | Runnable autoscaler loop configured by CLI flags and environment variables |
+| `src/scaler/game_config.py` | Validated per-game TOML configuration |
+| `games.example.toml` | Example mapping of Steam appids to strategies |
 | `src/scaler/exporter/steam_player_exporter.py` | Steam current-player client and Prometheus text exporter |
 | `src/scaler/exporter/autoscaler_metrics.py` | Prometheus text exporter for the autoscaler's fake running instance count |
 | `scripts/steam_player_exporter.py` | Script entrypoint for the Steam player exporter |
@@ -82,6 +84,19 @@ work below is guidance, not a requirement to expand every task's scope.
 - `aggressive` selects `AggressiveStrategy`: the threshold baseline plus one
   buffer instance (2 at zero players, 5 at 600 or above). It prioritizes spare
   capacity over cost, with no delay or hysteresis. `threshold` remains the default.
+- `--games-config` or `AUTOSCALER_GAMES_CONFIG` loads a TOML file with
+  `[games."APPID"]` tables containing `strategy`. Each game gets a separate
+  strategy, decision engine, and fake controller. Its appid and strategy override
+  global defaults; other label filters apply to all games. Invalid configuration
+  fails at startup. Changes require restarting the loop.
+- In per-game mode, each cycle evaluates all configured games sequentially;
+  `--once` processes all once. Query failures skip only the affected game and
+  preserve its count. Metrics are `running_instances{appid="..."}`; legacy
+  single-game mode retains the unlabeled metric. Grafana shows all player series.
+- Compose optionally loads the mounted `/app/games.example.toml` via
+  `AUTOSCALER_GAMES_CONFIG`. The default exporter still serves only `STEAM_APPID`;
+  additional games require their own exporter/scrape source. The example uses
+  `730: aggressive` and `570: threshold`; no `cost_saving` strategy exists.
 - `ThresholdStrategy` returns 1 below 100 players, 2 from 100 to 299, 3 from
   300 to 599, and 4 at 600 or above. These are prototype values, not validated
   production capacity limits.

@@ -20,21 +20,38 @@ class AutoscalerMetrics:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._running_instances = 0
+        self._game_instances: dict[str, int] = {}
 
-    def set_running_instances(self, count: int) -> None:
+    def set_running_instances(self, count: int, appid: str | None = None) -> None:
         with self._lock:
-            self._running_instances = count
+            if appid is None:
+                self._running_instances = count
+            else:
+                self._game_instances[appid] = count
 
     def render(self) -> bytes:
         with self._lock:
             running_instances = self._running_instances
+            game_instances = dict(self._game_instances)
+
+        if game_instances:
+            samples = "".join(
+                f'running_instances{{appid="{self._escape_label(appid)}"}} {count}\n'
+                for appid, count in sorted(game_instances.items())
+            )
+        else:
+            samples = f"running_instances {running_instances}\n"
 
         body = (
             "# HELP running_instances Current number of fake VM instances.\n"
             "# TYPE running_instances gauge\n"
-            f"running_instances {running_instances}\n"
+            f"{samples}"
         )
         return body.encode("utf-8")
+
+    @staticmethod
+    def _escape_label(value: str) -> str:
+        return value.replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
 
 
 def build_handler(metrics: AutoscalerMetrics) -> type[BaseHTTPRequestHandler]:

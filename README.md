@@ -159,3 +159,50 @@ the autoscaler loop does not need algorithm-specific changes.
 The loop logs and
 skips Prometheus/client errors instead of treating missing or invalid metrics as
 zero players.
+
+### Strategies per game
+
+Use a TOML configuration to select different strategies for different Steam
+games in the same loop. `games.example.toml` contains:
+
+```toml
+[games."730"]
+strategy = "aggressive"
+
+[games."570"]
+strategy = "threshold"
+```
+
+Run one evaluation for every configured game:
+
+```powershell
+.\.venv\Scripts\python.exe main.py --games-config games.example.toml --once
+```
+
+Omit `--once` for continuous operation. Alternatively, set
+`AUTOSCALER_GAMES_CONFIG=games.example.toml` when running on the host. Compose
+mounts this file read-only at `/app/games.example.toml`; to enable it, set
+`AUTOSCALER_GAMES_CONFIG=/app/games.example.toml` in `.env` and run
+`docker compose up -d --build autoscaler`. Edit the example file to change the
+game assignments, or mount your own file and set its container path.
+
+With a games file, each game has its own strategy, decision engine, and
+in-memory fake VM controller. The game configuration overrides the global
+strategy and `appid` filter; other label filters (such as `region`) still apply
+to every game. Each query must match exactly one series. `--once` evaluates
+all configured games once; continuous mode evaluates them sequentially before
+waiting for the configured interval. Invalid files or unknown strategies fail
+at startup. Configuration changes take effect after restarting the loop.
+
+`running_instances{appid="730"}` and `running_instances{appid="570"}` expose
+the separate fake counts. A failed query skips only that game's evaluation,
+preserving its existing instance count. The Grafana dashboard shows all player
+count series and labels instance series by `appid`.
+
+Prometheus must have a player-count source for **each** configured game. The
+default Compose exporter still provides only `STEAM_APPID` (default `730`);
+`570` requires a separate exporter and Prometheus scrape target. Adding a game
+to this file does not add a player-count source. Without a games file, the
+existing single-game CLI and unlabeled `running_instances` metric still work.
+Available strategy names are `threshold` and `aggressive`; `cost_saving` is not
+implemented.

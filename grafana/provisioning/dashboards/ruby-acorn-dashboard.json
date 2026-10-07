@@ -99,7 +99,7 @@
         {
           "datasource": "Prometheus",
           "editorMode": "code",
-          "expr": "steam_player_count{appid=\"730\"}",
+          "expr": "steam_player_count",
           "legendFormat": "players {{appid}}",
           "range": true,
           "refId": "A"
@@ -188,7 +188,7 @@
           "datasource": "Prometheus",
           "editorMode": "code",
           "expr": "running_instances",
-          "legendFormat": "fake instances",
+          "legendFormat": "fake instances {{appid}}",
           "range": true,
           "refId": "A"
         }

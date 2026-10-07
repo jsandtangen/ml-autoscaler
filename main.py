@@ -15,6 +15,7 @@ from scaler.exporter.autoscaler_metrics import (
     start_metrics_server,
 )
 from scaler.infrastructure.vm_controller import FakeVMController
+from scaler.game_config import GameConfig, load_games
 from scaler.strategies.registry import DEFAULT_STRATEGY, STRATEGIES, create_strategy
 
 
@@ -37,6 +38,7 @@ class AutoscalerConfig:
     metrics_port: int = DEFAULT_METRICS_PORT
     run_once: bool = False
     strategy_name: str = DEFAULT_STRATEGY
+    games: tuple[GameConfig, ...] = ()
 
 
 def parse_label_filter(value: str) -> tuple[str, str]:
@@ -96,6 +98,11 @@ def positive_int(value: str) -> int:
 def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
     parser = argparse.ArgumentParser(description="Run the Ruby Acorn autoscaler loop.")
     parser.add_argument(
+        "--games-config",
+        default=os.getenv("AUTOSCALER_GAMES_CONFIG"),
+        help="TOML file with per-game strategies. Also AUTOSCALER_GAMES_CONFIG.",
+    )
+    parser.add_argument(
         "--strategy",
         choices=sorted(STRATEGIES),
         default=os.getenv("AUTOSCALER_STRATEGY", DEFAULT_STRATEGY),
@@ -154,6 +161,10 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         parser.error(f"Unknown scaling strategy: {args.strategy}")
     label_filters = parse_env_label_filters(os.getenv("AUTOSCALER_LABELS"))
     label_filters.update(dict(args.label))
+    try:
+        games = load_games(args.games_config) if args.games_config else ()
+    except (OSError, ValueError) as error:
+        parser.error(f"Invalid games configuration: {error}")
 
     return AutoscalerConfig(
         prometheus_url=args.prometheus_url,
@@ -164,6 +175,7 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         metrics_port=args.metrics_port,
         run_once=args.once,
         strategy_name=args.strategy,
+        games=games,
     )
 
 
@@ -176,13 +188,14 @@ def evaluate_once(
     engine: DecisionEngine,
     label_filters: dict[str, str],
     metrics: AutoscalerMetrics | None = None,
+    metrics_appid: str | None = None,
 ) -> int:
     player_count = client.get_player_count(label_filters)
     current_instances = engine.vm_controller.running_instances()
     desired_instances = engine.strategy.desired_instances(player_count)
     running_instances = engine.apply_desired_instances(desired_instances)
     if metrics:
-        metrics.set_running_instances(running_instances)
+        metrics.set_running_instances(running_instances, appid=metrics_appid)
 
     if desired_instances > current_instances:
         action = f"scaled up by {desired_instances - current_instances}"
@@ -193,12 +206,13 @@ def evaluate_once(
 
     logger.info(
         "players=%s current_instances=%s desired_instances=%s "
-        "running_instances=%s action=%s",
+        "running_instances=%s action=%s appid=%s",
         player_count,
         current_instances,
         desired_instances,
         running_instances,
         action,
+        label_filters.get("appid", "unspecified"),
     )
 
     return running_instances
@@ -215,8 +229,22 @@ def run_loop(
         config.prometheus_url,
         metric_name=config.metric_name,
     )
-    engine = engine or build_engine(config.strategy_name)
     metrics = metrics or AutoscalerMetrics()
+    if config.games:
+        if engine is not None:
+            raise ValueError("A shared engine cannot be used with per-game configuration")
+        evaluations = []
+        for game in config.games:
+            labels = {**config.label_filters, "appid": game.appid}
+            evaluations.append((game.appid, labels, build_engine(game.strategy_name)))
+            metrics.set_running_instances(0, appid=game.appid)
+            logger.info(
+                "Configured game appid=%s strategy=%s", game.appid, game.strategy_name
+            )
+    else:
+        evaluations = [
+            (None, config.label_filters, engine or build_engine(config.strategy_name))
+        ]
 
     logger.info(
         "Starting autoscaler loop prometheus_url=%s metric_name=%s labels=%s "
@@ -225,7 +253,7 @@ def run_loop(
         config.metric_name,
         config.label_filters or "{}",
         config.interval_seconds,
-        config.strategy_name,
+        "per-game" if config.games else config.strategy_name,
     )
     if not config.run_once:
         start_metrics_server(
@@ -234,10 +262,15 @@ def run_loop(
         )
 
     while True:
-        try:
-            evaluate_once(client, engine, config.label_filters, metrics)
-        except GameDataClientError as error:
-            logger.warning("Skipping autoscaler evaluation: %s", error)
+        for appid, labels, game_engine in evaluations:
+            try:
+                evaluate_once(client, game_engine, labels, metrics, metrics_appid=appid)
+            except GameDataClientError as error:
+                logger.warning(
+                    "Skipping autoscaler evaluation: %s appid=%s",
+                    error,
+                    labels.get("appid", "unspecified"),
+                )
 
         if config.run_once:
             return

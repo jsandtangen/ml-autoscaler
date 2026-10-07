@@ -1,0 +1,5 @@
+[games."730"]
+strategy = "aggressive"
+
+[games."570"]
+strategy = "threshold"
