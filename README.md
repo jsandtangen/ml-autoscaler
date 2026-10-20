@@ -6,8 +6,11 @@ Current priority (2026-10-20): real start/stop control of a fixed OpenStack VM
 pool in Moria. The host CLI now supports `--controller openstack` and an explicit
 owned VM pool file. See [Moria VM setup and approval plan](docs/moria-vm-pool.md).
 The approved real-VM demo passed `0 -> 1 -> 0` on 2026-10-20. The dedicated
-`ruby-acorn-pool-01` VM is left SHUTOFF; continuous VM control is not enabled.
-Compose still uses fake control. Evidence: local ignored
+The user then approved the next step: a separate host process now controls
+`ruby-acorn-pool-01` continuously from live Steam counts. Minimum/maximum are
+both 1, so the VM normally remains ACTIVE. Open the
+[Ruby Acorn Moria VMs dashboard](http://127.0.0.1:3000/d/ruby-acorn-moria-vms).
+Compose still uses fake control. Evidence from the earlier controlled test: local ignored
 `demo-results/moria-vm-start-stop-2026-10-20.json`.
 Further TimesFM development is deferred. Earlier plan B/VirtualBox notes below
 are historical context; the separate school monitoring stack remains preserved.

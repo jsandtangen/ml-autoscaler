@@ -1,0 +1,695 @@
+{
+  "uid": "ruby-acorn-moria-vms",
+  "title": "Ruby Acorn Moria VMs",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "tags": [
+    "ruby-acorn",
+    "moria",
+    "real-vms"
+  ],
+  "editable": true,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Faktiske VM-er på",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "description": "Hypervisoren bekrefter ACTIVE uten pågående task. Dette er ikke spillserverberedskap.",
+      "targets": [
+        {
+          "expr": "moria_running_instances{job=\"moria_vm_autoscaler\",appid=\"730\"}",
+          "refId": "A",
+          "legendFormat": "På",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 2,
+      "title": "ønsket innenfor poolen",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "description": "",
+      "targets": [
+        {
+          "expr": "moria_desired_instances{job=\"moria_vm_autoscaler\",appid=\"730\"}",
+          "refId": "A",
+          "legendFormat": "ønsket",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Behov før kapasitetstak",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "description": "",
+      "targets": [
+        {
+          "expr": "moria_required_instances{job=\"moria_vm_autoscaler\",appid=\"730\"}",
+          "refId": "A",
+          "legendFormat": "Behov",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Maksimum i poolen",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "description": "",
+      "targets": [
+        {
+          "expr": "moria_maximum_instances{job=\"moria_vm_autoscaler\",appid=\"730\"}",
+          "refId": "A",
+          "legendFormat": "Maksimum",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Live Steam-spillere globalt",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 6,
+        "h": 5
+      },
+      "description": "",
+      "targets": [
+        {
+          "expr": "moria_global_player_count{job=\"moria_vm_autoscaler\",appid=\"730\"}",
+          "refId": "A",
+          "legendFormat": "Spillere",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "title": "Kundebelastning (modell)",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 6,
+        "y": 5,
+        "w": 6,
+        "h": 5
+      },
+      "description": "Globalt antall ganger demoandel 0,001; ikke målt trafikk mot denne VM-en.",
+      "targets": [
+        {
+          "expr": "moria_customer_player_count{job=\"moria_vm_autoscaler\",appid=\"730\"}",
+          "refId": "A",
+          "legendFormat": "Kundespillere",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 7,
+      "title": "Beslutningsalder",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 6,
+        "h": 5
+      },
+      "description": "",
+      "targets": [
+        {
+          "expr": "time() - moria_last_decision_timestamp_seconds{job=\"moria_vm_autoscaler\",appid=\"730\"}",
+          "refId": "A",
+          "legendFormat": "Sekunder",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 8,
+      "title": "Prometheus har kontakt",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 18,
+        "y": 5,
+        "w": 6,
+        "h": 5
+      },
+      "description": "1 betyr at metrics-endepunktet svarer. Vurder også beslutningsalder og inputstatus.",
+      "targets": [
+        {
+          "expr": "up{job=\"moria_vm_autoscaler\",appid=\"730\"}",
+          "refId": "A",
+          "legendFormat": "UP",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 9,
+      "title": "VM-er: faktisk, ønsket og rått behov",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 12,
+        "h": 8
+      },
+      "description": "",
+      "targets": [
+        {
+          "expr": "moria_running_instances{job=\"moria_vm_autoscaler\",appid=\"730\"}",
+          "refId": "A",
+          "legendFormat": "Faktisk",
+          "instant": false
+        },
+        {
+          "expr": "moria_desired_instances{job=\"moria_vm_autoscaler\",appid=\"730\"}",
+          "refId": "B",
+          "legendFormat": "ønsket",
+          "instant": false
+        },
+        {
+          "expr": "moria_required_instances{job=\"moria_vm_autoscaler\",appid=\"730\"}",
+          "refId": "C",
+          "legendFormat": "Rått behov",
+          "instant": false
+        },
+        {
+          "expr": "moria_maximum_instances{job=\"moria_vm_autoscaler\",appid=\"730\"}",
+          "refId": "D",
+          "legendFormat": "Pooltak",
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Live globalt spillertall",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 12,
+        "y": 10,
+        "w": 12,
+        "h": 8
+      },
+      "description": "",
+      "targets": [
+        {
+          "expr": "moria_global_player_count{job=\"moria_vm_autoscaler\",appid=\"730\"}",
+          "refId": "A",
+          "legendFormat": "Steam",
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Siste input tilgjengelig",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 6,
+        "h": 5
+      },
+      "description": "",
+      "targets": [
+        {
+          "expr": "moria_input_available{job=\"moria_vm_autoscaler\",appid=\"730\"}",
+          "refId": "A",
+          "legendFormat": "Gyldig",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 12,
+      "title": "Behov utover pooltak",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 6,
+        "y": 18,
+        "w": 6,
+        "h": 5
+      },
+      "description": "",
+      "targets": [
+        {
+          "expr": "moria_capacity_limit_shortfall_instances{job=\"moria_vm_autoscaler\",appid=\"730\"}",
+          "refId": "A",
+          "legendFormat": "VM-er",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 13,
+      "title": "Vellykkede oppskaleringer",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 12,
+        "y": 18,
+        "w": 6,
+        "h": 5
+      },
+      "description": "",
+      "targets": [
+        {
+          "expr": "moria_scale_up_events_total{job=\"moria_vm_autoscaler\",appid=\"730\"}",
+          "refId": "A",
+          "legendFormat": "Operasjoner",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 14,
+      "title": "Vellykkede nedskaleringer",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 18,
+        "y": 18,
+        "w": 6,
+        "h": 5
+      },
+      "description": "",
+      "targets": [
+        {
+          "expr": "moria_scale_down_events_total{job=\"moria_vm_autoscaler\",appid=\"730\"}",
+          "refId": "A",
+          "legendFormat": "Operasjoner",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 15,
+      "title": "Bekreftet VM-kontroller",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 6,
+        "h": 5
+      },
+      "description": "1 bekrefter at denne prosessen bruker OpenStack-kontrolleren.",
+      "targets": [
+        {
+          "expr": "moria_controller_info{job=\"moria_vm_autoscaler\",appid=\"730\",backend=\"openstack\",resource_type=\"virtual_machines\"}",
+          "refId": "A",
+          "legendFormat": "OpenStack",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 16,
+      "title": "Siste skaleringshandling",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 6,
+        "y": 23,
+        "w": 6,
+        "h": 5
+      },
+      "description": "-1 ned, 0 uendret, 1 opp. Gjelder siste vellykkede beslutning.",
+      "targets": [
+        {
+          "expr": "moria_scaling_action{job=\"moria_vm_autoscaler\",appid=\"730\"}",
+          "refId": "A",
+          "legendFormat": "Handling",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 17,
+      "title": "Om denne kjøringen",
+      "type": "text",
+      "gridPos": {
+        "x": 12,
+        "y": 23,
+        "w": 12,
+        "h": 5
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Ekte OpenStack-VM: **ruby-acorn-pool-01** (192.168.1.229).\n\nReaktiv styring fra live Steam/Prometheus. Fast pool: **1 VM**, minimum **1**, maksimalt **2 endringer per beslutning**. Med minimum lik maksimum forventes VM-en å stå på. Kapasitetsberegningene bruker demoantakelser; ingen spillserver er installert. TimesFM styrer ingen ressurser. Hendelsestellere nullstilles ved prosessomstart. Vertsprosessen starter ikke automatisk etter Windows-omstart."
+      }
+    }
+  ],
+  "links": [
+    {
+      "title": "Scaling (fake-demo)",
+      "type": "link",
+      "url": "/d/ruby-acorn-scaling",
+      "targetBlank": false
+    }
+  ]
+}

@@ -4,7 +4,43 @@ Gjeldende prioritet fra 20. oktober 2026: en fast pool med ekte OpenStack-VM-er
 som autoskaleren starter og stopper. TimesFM-arbeid venter; eksisterende
 shadow-observatør er separat. Skolemonitoreringen skal bevares.
 
-## Verifisert driftstest 20. oktober 2026
+## Aktiv live-styring og Grafana
+
+Brukeren ba om neste steg med live spillertall og Grafana. Den separate
+vertsprosessen er nå aktiv og VM-en er **ACTIVE**. Startet 20. oktober kl. 14:51
+norsk tid med samme poolfil, reaktiv kapasitet, appid 730, minimum 1, maksimum 1
+og høyst 2 endringer per beslutning. Den leser live Steam-data via lokal
+Prometheus på port 9090. Første vellykkede beslutning kl. 14:52 brukte 1015537
+globale spillere og startet den ene VM-en fra 0 til 1. En påfølgende beslutning
+bekreftet 1 -> 1 uten ny skalering. Med minimum lik maksimum vil normale
+variasjoner i spillertall ikke stoppe VM-en. Rått modellbehov var 12, mens
+pooltaket tillater 1; dette vises som kapasitetsbegrensning.
+
+Metrics bindes til `127.0.0.1:8002`; Docker Desktop når dette via
+`host.docker.internal:8002`. Jobben `moria_vm_autoscaler` prefikser alle innsamlede
+metrics med `moria_` og legger til `appid=730` / `pool=ruby-acorn`.
+Eksisterende dashboards fortsetter dermed å bruke fake-målingene.
+Lokal Prometheus ble reloaded med SIGHUP etter bestått promtool-konfigurasjonssjekk.
+
+[Ruby Acorn Moria VMs](http://127.0.0.1:3000/d/ruby-acorn-moria-vms) har 17 paneler.
+Grafana-API-et bekreftet provisioning; alle 19 panelspørringer ga gyldige,
+ikke-tomme resultater. Alle fire Prometheus-mål var UP. Visuell nettleserkontroll
+var ikke tilgjengelig. Ingen spillserver/readiness-sjekk er installert.
+
+`data/moria/live-process.json` registrerer launcher/worker PID og loggfiler
+(`live-*.stderr.log` / `stdout.log`). Python-worker var 5252 ved oppstart;
+verifiser prosessidentitet og ferske beslutninger hver sesjon. Kvitteringen er
+ikke en heartbeat. Verten starter ikke prosessen automatisk etter omstart.
+Live observasjoner skrives separat til `data/moria/live-player-history.csv`.
+`data/moria/live-monitoring-verification.json` bevarer verifiserte panelspørringer.
+TimesFM-prognoser leses ikke av denne kjøringen og skolemonitoreringen endres ikke.
+
+Ved nødvendig stopp: verifiser worker-PID/kommando, stopp bare denne
+autoskalerprosessen, og les deretter VM-status. Prosess-stopp stopper ikke VM-en.
+Start ikke en ny manager før den gamle er bekreftet avsluttet. Ikke gjenkjør
+demonstrasjonen mot en pool som eies av den aktive live-prosessen.
+
+## Tidligere kontrollert driftstest 20. oktober 2026
 
 Brukeren godkjente forslaget nedenfor, og opprettelse og test er gjennomført.
 `ruby-acorn-pool-01` fikk UUID `d41249d4-8b13-49d8-956c-0d95b12e4bc7` og
@@ -17,7 +53,7 @@ Resultat: **SHUTOFF → ACTIVE → SHUTOFF**, med bekreftede sluttilstander og s
 VM-ID i begge beslutninger. Testen var ferdig kl. 14:44. Den nye VM-en står stoppet.
 Sluttkontroll kl. 14:45 bekreftet at alle fire opprinnelige VM-er beholdt tilstanden.
 Dette beviser ekte VM-start/stopp, men ikke spillserverberedskap eller automatisk
-skalering fra reelle spillertall. Kontinuerlig OpenStack-styring er ikke aktivert.
+skalering fra reelle spillertall. På dette tidspunktet var kontinuerlig styring ikke aktivert.
 
 Lokale bevis (ignorert av Git):
 

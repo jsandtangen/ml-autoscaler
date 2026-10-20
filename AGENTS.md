@@ -65,6 +65,37 @@ No continuous OpenStack loop was started and Compose still uses fake control.
 Approval covers this dedicated creation/test, not deletion, reuse of old VMs,
 quota changes or continuous deployment. TimesFM development remains deferred.
 
+Subsequent user instruction "Fortsett til neste steg" authorized the described
+next step: real-player-driven continuous VM control plus local Grafana telemetry.
+This supersedes the earlier test-only running-state limitation. On 2026-10-20
+at 14:51 Europe/Oslo, started a hidden host main.py process with controller
+openstack, data/moria/pool.json, appid 730, reactive_capacity, local Prometheus,
+minimum=maximum=1, max change 2, interval 30 and metrics 127.0.0.1:8002.
+Worker PID was 5252, launcher 10392; data/moria/live-process.json records identity
+and logs. Verify identity/fresh metrics; the receipt is not a heartbeat.
+No auto-start after Windows reboot is configured. One manager must own the pool;
+do not run demo_openstack_scaling.py concurrently with live management.
+First live decision (1015537 global players) confirmed 0 -> 1 at 14:52,
+then another confirmed 1 -> 1. The VM is now ACTIVE, not left stopped as after
+the earlier demo. With min=max=1, normal demand variations cannot scale it down.
+Raw modeled requirement was 12; the one-VM pool does not satisfy that demand.
+No game-server readiness was established and assumptions remain demo capacity.
+
+Prometheus has the additional job moria_vm_autoscaler targeting
+host.docker.internal:8002, appid=730/pool=ruby-acorn. All its exported metric
+names are prefixed moria_ via metric_relabel_configs. This preserves existing
+fake dashboards and shadow source queries without mixing controllers.
+Grafana provisions ruby-acorn-moria-vms-dashboard.json (17 panels), URL
+http://127.0.0.1:3000/d/ruby-acorn-moria-vms. promtool config validation passed;
+local Prometheus reloaded using SIGHUP. All four targets were UP, Grafana API
+confirmed provisioning, all 19 panel queries returned data, and unprefixed
+running_instances still belonged only to the fake autoscaler job. Visual browser
+QA was unavailable (no connected browsers). Evidence is stored in ignored
+data/moria/live-monitoring-verification.json. Live history is separate at
+data/moria/live-player-history.csv; this run does not read TimesFM forecasts.
+Existing school services/VMs/network rules were not changed. Only the dedicated
+pool VM is managed. No deletion, old-VM reuse or quota change is authorized.
+
 Ruby Acorn is an early Python autoscaler prototype. It reads game player counts
 from Prometheus, calculates a desired number of VM instances, and applies a
 scaling decision through a controller. The default is a fake in-memory controller;
