@@ -5,7 +5,10 @@ Early Python autoscaler prototype for game player counts.
 Current priority (2026-10-20): real start/stop control of a fixed OpenStack VM
 pool in Moria. The host CLI now supports `--controller openstack` and an explicit
 owned VM pool file. See [Moria VM setup and approval plan](docs/moria-vm-pool.md).
-Live VM operations are awaiting approval; Compose still uses fake control.
+The approved real-VM demo passed `0 -> 1 -> 0` on 2026-10-20. The dedicated
+`ruby-acorn-pool-01` VM is left SHUTOFF; continuous VM control is not enabled.
+Compose still uses fake control. Evidence: local ignored
+`demo-results/moria-vm-start-stop-2026-10-20.json`.
 Further TimesFM development is deferred. Earlier plan B/VirtualBox notes below
 are historical context; the separate school monitoring stack remains preserved.
 

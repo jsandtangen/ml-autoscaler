@@ -4,12 +4,39 @@ Gjeldende prioritet fra 20. oktober 2026: en fast pool med ekte OpenStack-VM-er
 som autoskaleren starter og stopper. TimesFM-arbeid venter; eksisterende
 shadow-observatør er separat. Skolemonitoreringen skal bevares.
 
+## Verifisert driftstest 20. oktober 2026
+
+Brukeren godkjente forslaget nedenfor, og opprettelse og test er gjennomført.
+`ruby-acorn-pool-01` fikk UUID `d41249d4-8b13-49d8-956c-0d95b12e4bc7` og
+IP `192.168.1.229`. Konsollen bekreftet ferdig cloud-init kl. 14:40 norsk tid.
+Etter første stopp kjørte `demo_openstack_scaling.py` samme DecisionEngine og
+reaktive kapasitetsstrategi som hovedløkken med syntetiske spillertall 100000 og 0.
+Demoen brukte minimum 0, maksimum 1 og endringsgrense 2; vanlig live minimum er 1.
+
+Resultat: **SHUTOFF → ACTIVE → SHUTOFF**, med bekreftede sluttilstander og samme
+VM-ID i begge beslutninger. Testen var ferdig kl. 14:44. Den nye VM-en står stoppet.
+Sluttkontroll kl. 14:45 bekreftet at alle fire opprinnelige VM-er beholdt tilstanden.
+Dette beviser ekte VM-start/stopp, men ikke spillserverberedskap eller automatisk
+skalering fra reelle spillertall. Kontinuerlig OpenStack-styring er ikke aktivert.
+
+Lokale bevis (ignorert av Git):
+
+- `data/moria/pool.json`: poolkonfigurasjon uten hemmeligheter.
+- `data/moria/creation.json`, `first-boot.json`, `initial-stop.json` og
+  `final-verification.json`: opprettelse, boot og sluttkontroll.
+- `demo-results/moria-vm-start-stop-2026-10-20.json`: full beslutningsrapport.
+
+Alle fem instansplasser er nå brukt, inkludert stoppede VM-er. En større pool
+krever økt kvote eller særskilt godkjent gjenbruk. Ingen eksisterende VM-er,
+nettverksregler eller skolemonitorering er endret. Forslaget under beholdes som
+dokumentasjon av det som ble godkjent; ikke opprett samme VM på nytt.
+
 ## Oppdaget infrastruktur
 
 SSH til `ubuntu@moriavm` med eksisterende `~/.ssh/acit4410_key` fungerer.
 OpenStack 9.0.0 og `/home/ubuntu/moria-openrc.sh` finnes på verten; den eksisterende
 application credential brukes der uten å kopieres til Windows eller repoet.
-API-listing fungerer. Start/stopp-rettigheter må fortsatt verifiseres i drift.
+API-listing og start/stopp av den nye eide VM-en er verifisert i drift.
 
 Compute-kvote: 5 VM-er, 10 vCPU og 10240 MiB RAM. Fire VM-er finnes:
 `MORIAVM`, `internalvm`, `prometheus-vm` og stoppet `moiravm`.

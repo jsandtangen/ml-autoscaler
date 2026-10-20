@@ -24,8 +24,9 @@ start/stop of a fixed pool satisfies the course requirement. Defer further
 TimesFM development; leave its existing observer separate. Preserve school
 monitoring and all four existing VMs. Read-only Moria OpenStack access works via
 ubuntu@moriavm and existing OpenRC application credentials; never print/copy them.
-Compute quota is 5 instances/10 cores/10240 MiB RAM; four VMs exist including
-stopped moiravm. Only one new instance fits without quota/reuse changes.
+Compute quota is 5 instances/10 cores/10240 MiB RAM. The approved dedicated
+pool VM now occupies the fifth instance slot; stopped VMs still count as existing
+instances. Additional pool VMs need a quota increase or explicitly approved reuse.
 
 OpenStackController in src/scaler/infrastructure/openstack_controller.py now
 supports explicit UUID allowlists plus ruby_acorn_pool/ruby_acorn_game ownership
@@ -39,14 +40,30 @@ manager may own a pool; there is no distributed lock. Compose stays fake.
 scripts/demo_openstack_scaling.py is read-only unless --apply is supplied and
 requires an initially stopped pool plus a fresh report path for its engine demo.
 See docs/moria-vm-pool.md for the concrete one-VM creation/start/stop proposal.
-Infrastructure approval is still required before executing that proposal.
-No VM creation/start/stop or service deployment occurred during implementation.
+The user approved that one-VM creation and start/stop test, executed below.
 Verification: 311 pytest tests passed and diff whitespace checks passed.
 A real read-only call through the new SSH transport returned SHUTOFF for an
 existing VM; the ownership guard correctly rejected that unowned VM. The installed
 OpenStack CLI does not accept --os-api-timeout; use the remote timeout utility.
-Actual start/stop permissions, new-guest boot and live reconciliation remain
-unverified until approval and execution of the dedicated one-VM test.
+On 2026-10-20, created ruby-acorn-pool-01, UUID
+d41249d4-8b13-49d8-956c-0d95b12e4bc7, IP 192.168.1.229 on ACIT4410,
+acit-small (1 vCPU, 1024 MiB RAM, 20 GiB disk), ubuntu-26.04-moria, manager
+keypair, existing default security group, no floating IP. Both ownership
+properties were verified. Console reported final cloud-init completion at
+12:40:33 UTC. Initial stop through OpenStackController reached SHUTOFF.
+The real DecisionEngine/ReactiveCapacityStrategy demo with synthetic counts
+100000 then 0 passed SHUTOFF -> ACTIVE -> SHUTOFF at 14:42-14:44 Europe/Oslo.
+It used minimum 0 for the demo (normal live minimum remains 1) and max change 2;
+the single VM changed once per cycle. This verifies real VM operations, not game
+readiness, real-player-triggered scaling, or a two-VM simultaneous change.
+Report: ignored demo-results/moria-vm-start-stop-2026-10-20.json.
+Pool config: ignored data/moria/pool.json. Creation, first boot, initial stop and
+final verification evidence are under data/moria/. The final API check at
+14:45 local confirmed the new VM SHUTOFF and all four original VM IDs/statuses
+unchanged. No existing VM, school service, network or security rules were modified.
+No continuous OpenStack loop was started and Compose still uses fake control.
+Approval covers this dedicated creation/test, not deletion, reuse of old VMs,
+quota changes or continuous deployment. TimesFM development remains deferred.
 
 Ruby Acorn is an early Python autoscaler prototype. It reads game player counts
 from Prometheus, calculates a desired number of VM instances, and applies a
