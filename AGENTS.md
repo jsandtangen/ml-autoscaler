@@ -18,6 +18,26 @@ precedence over this guide.
 
 ## Project purpose and current status
 
+Pegasus approved real VM test completed 2026-10-20. User explicitly approved
+create -> ACTIVE -> SHUTOFF -> ACTIVE, final ACTIVE, no continuous scaling.
+Dedicated ruby-acorn-pegasus-vm-test-730-01 now has UUID
+1517a4dc-ad07-45da-8fd2-c87307a9f8fb and fixed IP 192.168.44.33 on ACIT4410.
+DecisionEngine + PegasusController performed all three actions with the same
+UUID; independent final API verification at 16:05:46 Europe/Oslo confirmed ACTIVE
+and no task. Actual quota use: 1/10 instances, 1/12 vCPU, 2048/24576 MiB RAM,
+1/10 ports; flavor root disk 50 GiB, no attached volume or floating IP. SHUTOFF
+retained the same allocation. Initially no other VMs existed in this project;
+final inventory has only this VM. Network/SG/rules/keypair checks passed.
+Two local one-off verifier assumptions failed (SDK flavor id normalized to name;
+security rule array ordering), then were corrected through read-only checks.
+No cloud action failed; no duplicate creation or deletion. Original verifier
+reports are preserved under ignored data/pegasus/. Test processes exited and
+no automatic scaling manager, monitoring rollout or autostart was started.
+See docs/pegasus-one-vm-result.md. No SSH/game readiness or real-player capacity
+was verified. Approval does not cover continuous deployment, extra VMs, deletion
+or further unscheduled state changes. Preserve this ACTIVE VM and existing Moria
+services unless explicitly instructed otherwise.
+
 Pegasus one-VM preparation (2026-10-20): user explicitly authorized creating
 dedicated ruby-acorn-key if no suitable keypair existed. Fresh API inventory
 still had no VMs/keypairs. Generated local Ed25519 key under

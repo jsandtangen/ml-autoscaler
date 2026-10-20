@@ -1,5 +1,14 @@
 # Pegasus / OpenStack
 
+Siste status 2026-10-20: brukeren godkjente én-VM-testen. Python-integrasjonen
+har nå bekreftet opprettelse → ACTIVE → SHUTOFF → ACTIVE på samme UUID
+`1517a4dc-ad07-45da-8fd2-c87307a9f8fb`, IP `192.168.44.33`. VM-en er ACTIVE;
+ingen automatisk skalering kjører. Bruk: 1 vCPU, 2 GiB RAM, 50 GiB disk og én
+port. Se [testresultatet](pegasus-one-vm-result.md), inkludert to korrigerte
+lokale verifikasjonskontroller; ingen skyoperasjoner feilet.
+
+Historisk klargjøringsstatus før den godkjente testen:
+
 Senere klargjøring samme dag: brukeren autoriserte et dedikert SSH-keypair.
 `ruby-acorn-key` er nå registrert med kun offentlig nøkkel; privatnøkkelen ligger
 brukerbeskyttet utenfor repoet. Konkret én-VM-konfigurasjon har bestått lesende

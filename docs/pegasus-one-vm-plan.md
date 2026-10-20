@@ -1,6 +1,8 @@
 # Plan for godkjenning: én Pegasus-test-VM
 
-Status 2026-10-20: klargjort, **VM-opprettelse avventer eksplisitt godkjenning**.
+Status 2026-10-20: brukeren godkjente planen; create/stop/start er gjennomført.
+Samme VM er nå ACTIVE. Se [resultat og evidens](pegasus-one-vm-result.md).
+Resten av dokumentet bevarer planen som ble godkjent.
 Arbeidet fortsetter på `feature/pegasus-integration`; eksisterende lokale
 endringer er bevart. Ingen push, merge eller kontinuerlig manager er startet.
 
