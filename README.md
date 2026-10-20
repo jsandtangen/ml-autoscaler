@@ -217,8 +217,8 @@ fair comparison. Forecasting lives separately from the scaling strategies.
 The optional ML extra adds pretrained **TimesFM 2.5 (200M, PyTorch)** through
 `timesfm==2.0.2`. This first integration uses zero-shot inference: our recorded
 player counts are the model's input context, not a dataset used to train its
-weights. Fine-tuning is a separate experiment described below; predictive
-autoscaling is not implemented yet.
+weights. Fine-tuning and offline predictive scaling are separate experiments
+described below. The running autoscaler still uses its configured rule strategy.
 The adapter follows the [official TimesFM API](https://pypi.org/project/timesfm/2.0.2/).
 
 Install and compare all three forecasts on the same rolling windows and targets:
@@ -377,6 +377,161 @@ with torch.no_grad():
         forecast_context_len=192,
     ).mean_predictions[0, 0].item()
 ```
+
+### Simulate predictive scaling
+
+`scripts/simulate_scaling.py` uses the original pretrained TimesFM 2.5 checkpoint
+to compare capacity decisions with a reactive rule and a fixed fleet. The LoRA
+adapter is not used. This is an offline replay with no infrastructure actions.
+
+```powershell
+.\.venv-ml\Scripts\python.exe scripts/simulate_scaling.py --history-path data/external/steamcharts/730-hourly-after-zero.csv --appid 730 --output-dir model-runs/my-scaling-simulation
+```
+
+The model must already be cached; `--allow-model-download` explicitly enables
+downloads. Use a new output directory for each run. Demo defaults are:
+
+| Assumption | Value | CLI option |
+| --- | --- | --- |
+| Customer's share of global Steam players | 0.1% | `--player-share 0.001` |
+| Capacity per instance | 100 players | `--players-per-instance 100` |
+| Spare capacity | 10% | `--headroom-fraction 0.10` |
+| Minimum fleet | 1 instance | `--minimum-instances 1` |
+| Fixed comparison fleet | 16 instances | `--fixed-instances 16` |
+| Price including startup | 0.10 EUR/instance-hour | `--vm-cost-per-hour 0.10` |
+| Historical context | 192 hours | `--window-size 192` |
+| Evaluated period | Final 72 hours | `--evaluation-hours 72` |
+
+These are adjustable demonstration assumptions, not measured server capacities,
+customer traffic shares or provider prices. The capacity rule is:
+
+```text
+customer_players = global_players * player_share
+desired_instances = max(minimum, ceil(customer_players * (1 + headroom) / players_per_instance))
+```
+
+`reactive_capacity` applies this rule to the current observation;
+`timesfm_capacity` applies the identical rule to the predicted next-hour count.
+`fixed_capacity` requests the configured fixed fleet. Existing `threshold` and
+`aggressive` behavior is unchanged; they are not the reactive baseline here,
+because their prototype thresholds do not implement these capacity assumptions.
+The new capacity strategies are available to the offline simulator and are not
+registered as live CLI strategies.
+
+The replay accepts consecutive hourly observations only. At hour t, it observes
+actual demand, scores the already-ready fleet, and requests the fleet for t+1.
+All starts and removals reconcile at the next hourly boundary, modeling one-hour
+startup and delayed removal. Starting instances are billed while booting, and
+departing instances are billed until removal. Pending instances provide no
+player capacity. Demand is held at the sampled value for each modeled hour;
+subhour changes are unknown. The last hour holds its existing fleet without
+ordering resources for an unscored future period. Context warmup and resource
+decisions before the evaluation period are replayed but excluded from totals.
+Initial fleet size uses only the first observation and the shared capacity rule.
+
+Forecast inputs include the current count and earlier observations only. Warmup
+or a failed/invalid forecast falls back to the reactive rule; fallback decisions
+are counted. Each call to the predictive strategy represents one new hourly
+sample; it must not be fed repeated 30-second scrapes of an hourly series.
+
+`report.json` records assumptions, source hash, evaluation period and costs,
+instance-hours, scaling events, hours below capacity, and unserved player-hours.
+`decisions.csv` records actual/modelled demand, predictions, ready/starting/
+requested fleets, shortfalls and costs for each evaluated hour and strategy.
+Unserved player-hours are modeled demand minus ready capacity, integrated over
+the sampled hours; this is not observed rejected players or an SLA measurement.
+Cost savings versus the fixed fleet alone do not establish a better policy:
+compare shortfalls and scaling activity as well. No live cost metrics or their
+meaning are changed by the simulator's cumulative experiment costs.
+
+The first replay, `model-runs/scaling-simulation-730-2026-10-20/`, used these
+defaults on the final 72 hourly observations:
+
+| Policy | Simulated cost (EUR) | Hours below modeled capacity | Scaling events |
+| --- | ---: | ---: | ---: |
+| Reactive capacity | 72.20 | 4 | 43 |
+| Original TimesFM capacity | 73.00 | 0 | 48 |
+| Fixed 16 instances | 115.20 | 0 | 0 |
+
+TimesFM incurred EUR 0.80 more than the reactive rule, with no modeled capacity
+shortfalls versus four sampled hours for the reactive rule. It cost EUR 42.20
+less than the selected fixed fleet, with more scaling activity. There were no
+forecast fallbacks. This demonstrates the simulation's tradeoff under the stated
+assumptions, not validated production savings or capacity guarantees.
+
+### Run shadow mode
+
+`scripts/shadow_autoscaler.py` is a separate read-only observer. It reads player
+samples and live decision metrics from Prometheus and writes proposals without
+calling an engine or resource controller. It cannot change the running fleet,
+and forecast latency or failure does not block `main.py`.
+
+Run it on the host in the existing ML environment:
+
+```powershell
+.\.venv-ml\Scripts\python.exe scripts/shadow_autoscaler.py --seed-history-path data/external/steamcharts/730-hourly-shadow-seed.csv
+```
+
+Omit `--seed-history-path` to collect new hourly history from scratch. The local
+seed above contains 445 observations: the previously preserved 444-row clean
+history plus an observed October 20, 07:00 UTC value from a refreshed source
+snapshot. Source details/hashes are retained in sibling metadata; the earlier
+training and simulation datasets were not overwritten. The model uses only
+192 consecutive past/current observations, ignores future seed rows, and warms
+up if a gap separates the seed from live data. Seed data are an input context,
+not additional training.
+
+Use `--once` for a single poll. Defaults: appid 730, local Prometheus port 9090,
+30-second polling, cached original TimesFM weights, and the same demo customer
+share/capacity/headroom as the simulation. CLI options include `--appid`,
+`--prometheus-url`, `--metric-name`, `--window-size`, `--player-share`,
+`--players-per-instance`, `--headroom-fraction`, `--minimum-instances`,
+`--output-dir`, and `--allow-model-download`. No ML installation or changes to
+Compose are needed if the host ML environment is already installed.
+
+The observer accepts **one fresh source sample per UTC hour**, during the first
+five minutes. A Prometheus range-vector query preserves the actual scrape
+timestamp, and samples older than 90 seconds are rejected. A start after the
+five-minute window waits until the next boundary. Frequent polls do not become
+extra hourly observations. Missing hours are not filled: the model waits for a
+new consecutive context and records reactive proposals during warmup/failure.
+Each successful forecast targets the next UTC hour, typically slightly less
+than 60 minutes after issue time because sampling/inference takes time.
+
+Ignored `data/shadow/730/` contains:
+
+- `hourly_observations.csv`: accepted live hourly samples, separate from seeds.
+- `events.jsonl`: sessions, decisions, forecast outcomes, missed targets and
+  status transitions. Decisions record source/aligned/issue/target timestamps,
+  policy, reactive capacity proposal, TimesFM proposal and live rule snapshot.
+- `latest_decision.json`: last accepted proposal, retained between polls.
+- `status.json`: latest poll status; `process.json`: observer PID/process state.
+- `metadata.json`: run configuration; `observer.lock`: single-writer lock.
+
+When a fresh sample arrives at a forecast's target hour, the observer records
+absolute/squared forecast error and the hypothetical capacity shortfall of its
+proposal. A missed hour is logged as unavailable and is never scored against a
+later measurement. Query failures do not create zero-demand samples. Missing
+live decision metrics do not prevent forecasting. Legacy unlabeled live metrics
+are marked `appid_verified=false`, since their game identity cannot be proved
+from the metrics alone. Check the recorded decision timestamp/freshness; live
+rule counts and customer-share capacity proposals use different policies.
+
+Restarts recover accepted samples and the pending forecast without issuing a
+second proposal for the same hour. A different policy/source/window requires a
+new output directory. Only one observer can own each directory; a process exit
+releases the OS lock. Stop a foreground observer with Ctrl+C. This is a host
+process, with no automatic startup after a reboot. For a background observer,
+inspect `process.json` and verify the PID belongs to `shadow_autoscaler.py`
+before stopping that process; the file may be stale after an abrupt termination.
+
+On October 20, 2026, shadow mode was started as a hidden background host process.
+Its first accepted source sample near 08:00 UTC was 535,036 global players.
+Original TimesFM predicted 573,551.5 for 09:00 UTC, suggesting 7 demo instances;
+the reactive capacity rule suggested 6, while the live `threshold` snapshot
+reported 4 running/desired instances. No resource action was issued by the
+observer. The next-hour outcome had not yet arrived at verification time.
+Recheck process and status files each session rather than assuming it is running.
 
 ### Strategies per game
 

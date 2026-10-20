@@ -23,7 +23,9 @@ from Prometheus, calculates a desired number of VM instances, and applies a
 scaling decision through a controller. The default is a fake in-memory controller;
 an optional host Docker controller starts/stops bounded local containers, not
 full virtual machines. Although the README names
-the project `ml-autoscaler`, there is no implemented ML strategy yet.
+the project `ml-autoscaler`, live resource control still uses rule strategies.
+An original TimesFM capacity strategy and historical replay are available
+offline; no predictive strategy is enabled in the live loop.
 
 Repository facts checked on 2026-10-07:
 
@@ -68,6 +70,13 @@ work below is guidance, not a requirement to expand every task's scope.
 | `src/scaler/timesfm_forecasting.py` | Lazy pretrained TimesFM 2.5 adapter for offline evaluation |
 | `src/scaler/training.py` | Chronological train/validation/test windows and forecast scoring |
 | `scripts/finetune_timesfm.py` | Offline TimesFM Transformers LoRA training and held-out comparisons |
+| `src/scaler/strategies/capacity.py` | Explicit customer share, capacity and reactive capacity rule |
+| `src/scaler/strategies/predictive.py` | Past-window forecasts to capacity with reactive fallback |
+| `src/scaler/simulation.py` | Hourly resource/cost/shortfall replay without infrastructure actions |
+| `scripts/simulate_scaling.py` | Compare reactive, original TimesFM and fixed capacity offline |
+| `src/scaler/data/shadow_source.py` | Read-only timestamped source and live-decision snapshots from Prometheus |
+| `src/scaler/shadow.py` | Hour-aligned shadow proposals, continuity checks and next-hour outcome scoring |
+| `scripts/shadow_autoscaler.py` | Independent host shadow observer, persistent journals and single-writer lock |
 | `scripts/evaluate_forecasts.py` | Offline baseline comparison from player history, with JSON output |
 | `src/scaler/strategies/base.py` | Abstract `ScalingStrategy` contract |
 | `src/scaler/strategies/threshold.py` | Current threshold-based instance calculation |
@@ -103,7 +112,8 @@ work below is guidance, not a requirement to expand every task's scope.
   Window/horizon units are observations, not elapsed time; irregular sampling is
   not resampled. CSV loading sorts each appid separately and rejects malformed
   rows and duplicate timestamps. Optional pretrained TimesFM evaluation is
-  available; offline LoRA training is separate and no predictive scaling is enabled.
+  available; offline LoRA training/scaling replay are separate and no live
+  predictive scaling is enabled.
   Run `.\.venv\Scripts\python.exe scripts/evaluate_forecasts.py --appid 730
   --window-size 10 --horizon 1` against default `data/player_history.csv`, or
   supply `--history-path`. At least window size + horizon observations are needed
@@ -136,6 +146,47 @@ work below is guidance, not a requirement to expand every task's scope.
 - Strategies are selected by `--strategy` or `AUTOSCALER_STRATEGY`, defaulting
   to `threshold`. `src/scaler/strategies/registry.py` maps names to implementations;
   unknown names fail at startup. Add algorithms there without changing the loop.
+- Offline capacity policies are not registered in the live strategy registry.
+  `CapacityPolicy` uses customer share of global counts and desired fleet =
+  max(minimum, ceil(customer demand * (1+headroom) / players per instance)).
+  `ReactiveCapacityStrategy` uses current counts; `PredictiveCapacityStrategy`
+  uses a past-only rolling window and a next-hour forecaster. Warmup and invalid/
+  failed forecasts fall back to the same reactive rule and expose status.
+  One call represents one new hourly sample; do not feed this strategy repeated
+  30-second scrapes. Legacy threshold/aggressive strategies are unchanged.
+- `scripts/simulate_scaling.py` replays hourly history with the original native
+  TimesFM 2.5 checkpoint, never LoRA. Demo assumptions: share 0.001, 100 players
+  per instance, 10% headroom, minimum 1, fixed fleet 16, EUR 0.10 per instance-
+  hour, context 192, final 72 hours scored. All are CLI-configurable except the
+  one-hour forecast/startup/reconciliation period. Require consecutive hourly
+  observations; decisions at t affect ready fleet at t+1. Startup instances are
+  billed but provide no capacity; removals wait until the next boundary. Actual
+  demand is held for each modeled hour. Final hour holds its existing fleet.
+  Replay warmup/resources before the scored period, without charging those
+  hours. Report model fallbacks/successes, cumulative simulated cost, instance-
+  hours, scale events, capacity shortfall hours and unserved player-hours.
+  Use a new output directory under ignored `model-runs/`; save report.json and
+  decisions.csv. Model downloads are disabled unless --allow-model-download.
+  This creates no infrastructure resources and changes no live cost metrics.
+- Shadow mode runs separately via `scripts/shadow_autoscaler.py`, never inside
+  `main.py`/controllers. Read original TimesFM weights from cache by default;
+  downloads require --allow-model-download. Poll Prometheus every 30s; accept
+  only the first fresh source sample per UTC hour within 300 seconds after the
+  boundary (source age <=90s). Read scrape timestamps from a 5m range vector,
+  not query evaluation timestamps. Proposals target the next UTC boundary.
+  Need 192 consecutive hourly observations; no synthetic gap filling. Optional
+  --seed-history-path primes past inputs without training. On gaps, warm up
+  again; on model failure, log a reactive capacity proposal with fallback status.
+  Preserve live rule control/metrics unchanged. Capture actual live rule metrics
+  when available; legacy unlabeled snapshots have appid_verified=false.
+  Log outcome only at the exact target hour; missed hours are not scored against
+  later demand. Hypothetical shortfall uses demo capacity, not real SLA data.
+  Persist hourly_observations.csv, events.jsonl, latest_decision.json, status.json,
+  process.json and metadata.json under ignored data/shadow/APPID. Recover samples
+  and pending forecast on restart; avoid duplicate hourly proposals. One process
+  owns each directory via OS lock; changed config requires another directory.
+  No Compose changes/ML runtime installation are required for the existing host
+  .venv-ml. A host observer does not restart automatically after reboot.
 - Each evaluation computes the desired count once; `DecisionEngine` applies it
   via `apply_desired_instances(desired)`. `evaluate(player_count)` remains available.
 - `aggressive` selects `AggressiveStrategy`: the threshold baseline plus one
@@ -332,6 +383,30 @@ model overall or deploy it automatically. Adapter weights were updated and
 saved separately; reports/predictions preserve the experiment. Full suite:
 186 tests passed; installed dependency compatibility and diff checks passed.
 
+On 2026-10-20, the user chose the original pretrained TimesFM model and approved
+an offline customer-share simulation with configurable demo capacity and an
+hourly horizon. First run: `model-runs/scaling-simulation-730-2026-10-20/`, last
+72 hours of `730-hourly-after-zero.csv`, original native PyTorch checkpoint,
+192-hour context. Defaults as documented above. Results: reactive cost EUR
+72.20, 4 modeled under-capacity hours, 43 scale events; TimesFM EUR 73.00,
+0 under-capacity hours, 48 scale events; fixed 16 instances EUR 115.20,
+0 under-capacity hours. Zero model fallbacks. All 216 scored decision rows,
+cost/shortfall totals and next-hour fleet reconciliation were checked. Full
+suite: 216 tests passed. These are exploratory simulation results under demo
+assumptions, not production savings/SLA evidence. Predictive infrastructure
+control remains future integration; shadow logging is implemented below.
+
+On 2026-10-20, separate read-only shadow mode was implemented and tested with
+32 new unit tests (248 total passed). Refreshed SteamCharts raw snapshot
+730-chart-data-shadow-start.json included a new 07:00 UTC observation. A separate
+445-row 730-hourly-shadow-seed.csv and source/hash metadata preserve the previous
+training/simulation files. First live shadow sample near 08:00 UTC: 535036
+players, forecast 573551.5 for 09:00 UTC, proposal 7 under demo capacity (reactive
+capacity 6); live threshold snapshot running/desired 4. The next-hour outcome
+was not yet available. A hidden background host observer was started; consult
+data/shadow/730/process.json and verify the OS process/status on each session.
+The observer changes no resources and does not block the existing autoscaler.
+
 With Docker Desktop running Linux containers:
 
 ```powershell
@@ -411,8 +486,8 @@ The Compose data chain has been verified live. Repeat these checks after changes
 3. Run one autoscaler evaluation against the scraped metric.
 4. Decide whether the loop should keep running after repeated metric failures,
    back off, or alert.
-5. Keep real VM control, ML strategies, cooldown/hysteresis, and production
+5. Keep real VM control, live ML strategies, cooldown/hysteresis, and production
    deployment as future design work unless explicitly requested.
 
-Real VM control, ML strategies, cooldown/hysteresis, and production deployment
+Real VM control, live ML strategies, cooldown/hysteresis, and production deployment
 remain future design work unless explicitly requested.
