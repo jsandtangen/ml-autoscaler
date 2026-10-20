@@ -10,3 +10,8 @@ __pycache__/
 demo-results/
 /data/
 /model-runs/
+clouds.yaml
+clouds.yml
+secure.yaml
+secure.yml
+*-openrc.sh

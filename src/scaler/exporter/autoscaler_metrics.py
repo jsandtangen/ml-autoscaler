@@ -50,13 +50,17 @@ class AutoscalerMetrics:
         self._games: dict[str | None, GameMetrics] = {None: GameMetrics()}
         self._cost_model = CostModel()
         self._simulation_report_path = None
+        self._pegasus_provider = None
+
+    def set_pegasus_provider(self, provider):
+        self._pegasus_provider = provider
 
     def set_simulation_report(self, path):
         self._simulation_report_path = path
 
     def set_controller(self, backend, appid=None):
         resource = {"fake": "simulated_instances", "docker": "local_containers",
-                    "openstack": "virtual_machines"}[backend]
+                    "openstack": "virtual_machines", "pegasus": "virtual_machines"}[backend]
         with self._lock:
             state = self._games.get(appid, GameMetrics())
             self._games[appid] = replace(state, controller=(backend, resource))
@@ -258,6 +262,12 @@ class AutoscalerMetrics:
         ).encode("utf-8")
         if self._simulation_report_path:
             body += render_simulation_metrics(self._simulation_report_path, self._labels)
+        if self._pegasus_provider:
+            for name, value in self._pegasus_provider().items():
+                metric = f"pegasus_{name}"
+                kind = "counter" if name.endswith(("_total", "_sum", "_count")) else "gauge"
+                body += (f"# HELP {metric} Pegasus infrastructure telemetry; ACTIVE does not verify game readiness.\n"
+                         f"# TYPE {metric} {kind}\n{metric} {value:.12g}\n").encode()
         return body
 
     def _labels(self, appid: str | None, **extra: str) -> str:

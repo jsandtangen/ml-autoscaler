@@ -1,0 +1,15 @@
+{
+  "cloud": "pegasus",
+  "project_id": "00000000000000000000000000000001",
+  "pool": "demo",
+  "appid": "730",
+  "image_id": "00000000-0000-0000-0000-000000000002",
+  "flavor_id": "REPLACE_WITH_FLAVOR_ID",
+  "network_id": "00000000-0000-0000-0000-000000000003",
+  "key_name": "ruby-acorn",
+  "security_groups": ["default"],
+  "maximum_instances": 6,
+  "operation_timeout": 300,
+  "cooldown_seconds": 120,
+  "state_dir": "data/pegasus"
+}

@@ -2,6 +2,13 @@
 
 Early Python autoscaler prototype for game player counts.
 
+Pegasus integration (2026-10-20): the optional `--controller pegasus` backend
+uses OpenStack SDK and defaults to **dry-run**. It supports owned VM creation,
+start/stop, quota checks and separate infrastructure telemetry, with a six-VM
+demo ceiling. See [Pegasus setup and staged verification](docs/pegasus.md).
+No authenticated Pegasus VM test or deployment has been performed. The existing
+Moria controller and Compose configuration remain separate.
+
 Current priority (2026-10-20): real start/stop control of a fixed OpenStack VM
 pool in Moria. The host CLI now supports `--controller openstack` and an explicit
 owned VM pool file. See [Moria VM setup and approval plan](docs/moria-vm-pool.md).

@@ -23,6 +23,7 @@ from scaler.exporter.autoscaler_metrics import (
 from scaler.infrastructure.vm_controller import ControllerError, FakeVMController
 from scaler.infrastructure.docker_controller import DockerController
 from scaler.infrastructure.openstack_controller import OpenStackController, OpenStackPool
+from scaler.infrastructure.pegasus_controller import PegasusController, PegasusConfig
 from scaler.cost import CostModel
 from scaler.game_config import GameConfig, load_games
 from scaler.strategies.registry import (
@@ -63,6 +64,8 @@ class AutoscalerConfig:
     shadow_decisions_dir: str | None = "data/shadow-capacity"
     simulation_report_path: str | None = None
     openstack_pool: OpenStackPool | None = None
+    pegasus_config: PegasusConfig | None = None
+    pegasus_apply: bool = False
 
 
 def parse_label_filter(value: str) -> tuple[str, str]:
@@ -152,12 +155,15 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
     parser.add_argument("--simulation-report-path", default=os.getenv("AUTOSCALER_SIMULATION_REPORT_PATH"),
                         help="Read-only offline comparison JSON to expose as separate simulation metrics.")
     parser.add_argument(
-        "--controller", choices=["fake", "docker", "openstack"],
+        "--controller", choices=["fake", "docker", "openstack", "pegasus"],
         default=os.getenv("AUTOSCALER_CONTROLLER", "fake"),
         help="Resource controller. Docker mode requires the host Docker CLI.",
     )
     parser.add_argument("--openstack-pool", default=os.getenv("AUTOSCALER_OPENSTACK_POOL"),
                         help="JSON file for one explicitly owned fixed VM pool over SSH.")
+    parser.add_argument("--pegasus-config", help="Non-secret Pegasus SDK configuration JSON.")
+    parser.add_argument("--pegasus-apply", action="store_true",
+                        help="Enable real Pegasus changes ONLY after explicit approval. Default is dry-run.")
     parser.add_argument(
         "--docker-namespace", default=os.getenv("AUTOSCALER_DOCKER_NAMESPACE", "ruby-acorn-demo"),
         help="Ownership namespace for Docker demo containers.",
@@ -246,6 +252,16 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
 
     args = parser.parse_args(argv)
     pool = None
+    pegasus = None
+    if args.pegasus_apply and args.controller != "pegasus":
+        parser.error("--pegasus-apply requires --controller pegasus")
+    if args.controller == "pegasus":
+        try:
+            if not args.pegasus_config:
+                raise ValueError("Pegasus requires --pegasus-config")
+            pegasus = PegasusConfig.load(args.pegasus_config)
+        except (OSError, ValueError, KeyError, TypeError):
+            parser.error("Invalid Pegasus configuration; see docs/pegasus.md")
     if args.controller == "openstack":
         try:
             if not args.openstack_pool:
@@ -254,7 +270,9 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         except (OSError, ValueError, KeyError, TypeError) as error:
             parser.error(f"Invalid OpenStack pool: {error}")
     maximum = args.max_instances if args.max_instances is not None else (
-        len(pool.server_ids) if pool else args.docker_max_instances if args.controller == "docker" else 7)
+        pegasus.maximum_instances if pegasus else len(pool.server_ids) if pool else args.docker_max_instances if args.controller == "docker" else 7)
+    if pegasus and maximum > pegasus.maximum_instances:
+        parser.error("Maximum instances exceeds the Pegasus configured limit")
     if pool and maximum > len(pool.server_ids):
         parser.error("Maximum instances exceeds the fixed VM pool")
     if args.controller == "docker":
@@ -266,7 +284,7 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         parser.error(str(error))
     if args.strategy not in STRATEGIES:
         parser.error(f"Unknown scaling strategy: {args.strategy}")
-    if args.controller not in {"fake", "docker", "openstack"}:
+    if args.controller not in {"fake", "docker", "openstack", "pegasus"}:
         parser.error(f"Unknown controller: {args.controller}")
     if not 1 <= args.docker_max_instances <= 5:
         parser.error("Docker demo limit must be between 1 and 5")
@@ -278,6 +296,8 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         parser.error(f"Invalid games configuration: {error}")
     if pool and (games or label_filters.get("appid") != pool.appid):
         parser.error("OpenStack supports one game; --label appid must match the pool")
+    if pegasus and (games or label_filters.get("appid") != pegasus.appid):
+        parser.error("Pegasus supports one game; --label appid must match configuration")
 
     return AutoscalerConfig(
         prometheus_url=args.prometheus_url,
@@ -299,6 +319,7 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         max_sample_age_seconds=args.max_sample_age_seconds, shadow_decisions_dir=args.shadow_decisions_dir,
         simulation_report_path=args.simulation_report_path,
         openstack_pool=pool,
+        pegasus_config=pegasus, pegasus_apply=args.pegasus_apply,
     )
 
 
@@ -317,6 +338,12 @@ def build_engine(
                 or config.max_instances > len(pool.server_ids)):
             raise ValueError("OpenStack requires a matching single-game bounded pool")
         controller = OpenStackController(pool)
+    elif config.controller_backend == "pegasus":
+        pc = config.pegasus_config
+        if (pc is None or config.games or game != pc.appid
+                or config.max_instances > pc.maximum_instances):
+            raise ValueError("Pegasus requires a matching single-game bounded configuration")
+        controller = PegasusController(pc, dry_run=not config.pegasus_apply)
     else:
         raise ValueError(f"Unknown controller: {config.controller_backend}")
     policy = config.capacity_policy if config else CapacityPolicy()
@@ -341,10 +368,14 @@ def evaluate_once(
         history.record(player_count, appid=metrics_appid or label_filters.get("appid"))
     current_instances = engine.vm_controller.running_instances()
     desired_instances = engine.strategy.desired_instances(player_count)
+    if isinstance(engine.vm_controller, PegasusController):
+        engine.vm_controller.record_target(engine.limits.plan(desired_instances, current_instances).desired_instances)
     if metrics and engine.capacity_policy is not None:
         metrics.record_capacity_demand(player_count, engine.capacity_policy,
                                        engine.limits, desired_instances, current_instances, metrics_appid)
     running_instances = engine.apply_desired_instances(desired_instances)
+    if isinstance(engine.vm_controller, PegasusController) and engine.vm_controller.dry_run:
+        logger.info("Pegasus dry-run plan=%s", engine.vm_controller.plan)
     desired_instances = engine.last_plan.desired_instances
     if metrics:
         metrics.record_decision(
@@ -422,6 +453,8 @@ def run_loop(
 
     for appid, labels, game_engine in evaluations:
         metrics.set_controller(config.controller_backend, appid)
+        if isinstance(game_engine.vm_controller, PegasusController):
+            metrics.set_pegasus_provider(game_engine.vm_controller.telemetry)
         metrics.set_source_appid(labels.get("appid"), appid)
         metrics.set_running_instances(game_engine.vm_controller.running_instances(), appid=appid)
         metrics.set_strategy(strategy_name(game_engine.strategy), appid=appid)

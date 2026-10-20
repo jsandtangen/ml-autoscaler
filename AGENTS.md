@@ -18,6 +18,29 @@ precedence over this guide.
 
 ## Project purpose and current status
 
+Pegasus integration work (2026-10-20) now has a separate SDK backend at
+src/scaler/infrastructure/pegasus_controller.py, selected with --controller
+pegasus / --pegasus-config. Dry-run is the default; real changes require the
+CLI-only --pegasus-apply AND explicit user approval. Existing Moria approvals
+do not authorize Pegasus mutations. Maximum allocated pool is 6; project,
+name and metadata must all match. Stopped VMs are reused before creation.
+No delete operation exists. Compute quotas, operation waits, local cooldown,
+single-host state-directory lock and persistent uncertain-create receipt guard
+mutations. One manager across hosts remains required. See docs/pegasus.md and
+pegasus.example.json; scripts/inspect_pegasus.py is strictly read-only.
+Unauthenticated HTTP checks confirmed Horizon and Identity v3 reachable from
+this workstation, but authenticated Compute/API roles/quota remain unverified.
+No Pegasus credentials were read and no Pegasus resources were changed.
+Existing monitoring configuration/deployment and Moria processes were untouched.
+Optional .[openstack] uses openstacksdk>=4,<5. Test environment under ignored
+data/pegasus-test-venv uses Python 3.12.11 / SDK 4.21.0; existing .venv could not
+run pytest (missing unicodedata) and was not replaced. Infrastructure telemetry
+has pegasus_ names; scrape examples prefix all names to preserve existing jobs.
+Verification: 334 pytest tests passed, including SDK resource-contract checks,
+with four SDK deprecation warnings; git diff --check passed. Authenticated
+inventory, real one-VM/1-3 scaling and Prometheus scraping remain manual staged
+checks pending local Pegasus configuration and explicit mutation approval.
+
 Latest read-only audit (2026-10-20): user asked which tutorial VMs are still
 needed and how to expand the pool; no cleanup/reuse was authorized or performed.
 See docs/moria-vm-audit.md. All five known VM identities/statuses remain as before.
