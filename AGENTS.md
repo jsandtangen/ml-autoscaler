@@ -627,13 +627,100 @@ with potentially substantial performance degradation. Preserve WSL2/security
 settings and test one 1 GiB/1-vCPU Debian guest first. Only about 3.2 GiB host
 RAM was free; do not assume three guests fit. No hypervisor installation,
 feature change or independent VM creation has been performed.
-Next user action: install stable Windows x86-64 VirtualBox, check Windows
-Hypervisor Platform, then confirm VBoxManage --version/list vms and Docker
-health. After template/clone lifecycle checks, implement explicit UUID-scoped
-control; never clone/delete machines during scaling. Full-VM start/stop
-verification remains outstanding until setup exists.
+This historical VirtualBox plan was superseded by the later OpenStack discovery
+and the user's plan B decision below. Do not treat VirtualBox installation as
+the current next action. Full-VM start/stop verification remains outstanding.
 
 Verification of comparison/telemetry: 288 pytest tests passed; diff whitespace,
 Compose configuration and Prometheus configuration passed. Live Prometheus
 exposed nine comparison series plus original TimesFM shadow forecast. Grafana
 loaded the comparison panels. Fake control remains active.
+
+On 2026-10-20, the user selected PLAN B after a read-only infrastructure/data
+audit: keep ACIT4410's historical monitoring separate; continue using Ruby
+Acorn's already-running local Compose stack. Do not install VirtualBox, create
+VMs, deploy to the school monitoring VM or switch the active fake controller
+merely because plan B was selected. TimesFM remains shadow-only. The user
+requires approval before any infrastructure cleanup or modification, and before
+backup execution. The user subsequently approved the proposed backup procedure,
+the local destination below and password-protected AES-256 7z encryption,
+including official 7-Zip software on Windows if necessary. This authorizes
+backups and cleanup of artifacts created by that backup only, not deletion of
+VMs, old data or service changes. The user enters the password locally; never
+ask for it in chat, log it or put it in a command-line argument.
+
+Existing SSH routes verified: local acit4410_key to ubuntu@moriavm; from there,
+ubuntu@192.168.1.212 is internalvm, and ubuntu@192.168.1.179 requires the existing
+manager_key with IdentitiesOnly=yes. No key contents were read or recorded.
+MORIAVM 192.168.1.180 is the Tailscale/SSH management entry. internalvm hosts a
+FastAPI exercise without Docker volumes or local Git changes. moiravm
+192.168.1.196 is reportedly stopped; its disk contents remain unexamined. None
+is used by the active local Ruby Acorn runtime. Do not delete any of them.
+
+prometheus-vm runs one-node Swarm stack prom: Prometheus 2.36.2, Grafana 13.2.2,
+Alertmanager, node-exporter and cAdvisor. It has 2 vCPU, 3.8 GiB RAM (about
+2.8 GiB available at audit), a 19 GiB root filesystem (about 12 GiB free),
+Python 3.14.4/venv, and no Compose plugin. prom_prometheus_data is about 664 MiB,
+prom_grafana_data about 337 MiB. /home/ubuntu/prometheus contains modified
+prometheus/prometheus.yml and grafana/config.monitoring plus a config backup.
+Treat configuration backups as sensitive; never print credential values.
+Prometheus admin API is already enabled, so a future approved TSDB snapshot
+including head data needs no restart. For Grafana, propose SQLite Online Backup
+plus other persistent files, not a raw copy of the live database. Persisted
+Alertmanager silences/nflog files were both zero bytes. No backups were executed
+during that initial read-only audit; the later approved backup is tracked below.
+
+Approved backup destination: C:/Users/jsand/RubyAcornBackups/prometheus-vm/2026-10-20,
+outside OneDrive/Git. scripts/backup_prometheus_vm.py installs a SHA-256-verified
+official portable 7-Zip console under the user's LocalAppData (the normal
+installer required Windows administrator elevation), creates a unique private
+local staging folder, and invokes scripts/prepare_prometheus_backup.py via SSH
+as root. The remote preparer creates only a new /var/backups/ruby-acorn/run-ID
+tree and a TSDB snapshot including head, makes an online SQLite copy with
+integrity_check, preserves Grafana assets/config/Alertmanager state, records
+image digests and verifies unchanged running Swarm task IDs. It hashes every
+regular backup file. The archive is streamed over SSH to private Windows
+staging and every transferred file hash is checked before password handoff.
+scripts/finish_backup_encryption.ps1 opens in a visible local console: 7-Zip
+prompts for the password, encrypts with header encryption, and tests the archive
+with user-entered password. The helper writes *-status.json and an archive
+checksum only after successful verification, then removes its own local work
+folder using validated resolved paths. Inspect the status file; do not claim
+encryption complete from preparation alone. After status encrypted_and_verified,
+backup_prometheus_vm.py --cleanup-verified STATUS_PATH validates the encrypted
+archive hash and removes only that run's remote staging and created snapshot.
+Original TSDB blocks, original Grafana DB, configuration and services are not
+deleted or restarted. A full restore rehearsal remains a separate later step.
+
+The games exporter at 172.31.255.1:1080 explicitly replays source history:
+/health reports replay_epoch/current_interval/max_interval and 362 games;
+189 player series were active at audit. Metric is steam_player_count with appid
+and game metadata labels; player_count was absent from retained history.
+Effective retention is 15d; retained CS:GO/Dota 2 samples spanned about 15.7d,
+with one-minute scrape intervals and no timestamp holes, but around 12% zeros.
+Both had a common 42h50m zero period while up=1. Do not interpret these as valid
+zero global demand. Values typically update every five minutes. Source endpoint
+/games/730/history was inspected in memory only: 69,120 regular 300-second
+records covering 240 days, original UTC dates 2017-12-14 through 2018-08-10,
+1,115 zeros (1.61%), longest positive contiguous segment about 5.27 days.
+This is historical CS:GO, not live 2026 CS2. Keep source and scrape timestamps
+distinct; do not combine replay with the existing local live Steam history.
+Potential 15/30-minute forecasts require 3/6 steps at five-minute resolution,
+not the current hourly observer unchanged. Data export, cleaning and model
+experiments remain proposed work. No TimesFM install/inference was triggered
+by the audit. Public dataset overlap with model pretraining is unknown.
+
+Approved backup backup-20261020T103244Z-966a24 completed on 2026-10-20. It included
+a TSDB snapshot with head, online SQLite backup (integrity_check=ok), Grafana
+assets, configuration with local changes and Alertmanager state. All five Swarm
+task IDs were unchanged during preparation. 1,281 files totaling 1,017,115,146
+bytes were verified after transfer. User entered the encryption password only
+in the local console. Receipt status is encrypted_and_verified; encrypted archive
+is 471,407,348 bytes under the approved destination, named
+backup-20261020T103244Z-966a24.7z. Its SHA-256 and *-status.json are adjacent.
+The helper verified the encrypted archive and removed the local plaintext work
+directory. Inspect receipt remote_cleanup for cleanup confirmation. No passwords
+or key contents were exposed. 295 pytest tests passed, including backup content,
+path and cleanup guards; PowerShell parsing and diff whitespace checks passed.
+A complete application restore rehearsal has not been performed. Backup approval
+does not authorize deleting VMs or original monitoring data.

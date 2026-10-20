@@ -1,5 +1,10 @@
 # Lokal VirtualBox-vert for Ruby Acorn
 
+**Historisk alternativ, ikke gjeldende neste steg:** Brukeren valgte 20. oktober
+2026 plan B: behold ACIT4410-overvåkingen separat og bruk eksisterende lokal
+Ruby Acorn-stakk. Ikke installer VirtualBox eller opprett VM-er etter denne
+veiledningen uten en ny eksplisitt beslutning. Se README, «Selected infrastructure».
+
 Oppsettsveiledning før VM-implementering, undersøkt 20. oktober 2026.
 Ingen hypervisor er installert, ingen Windows-funksjoner er endret og ingen
 selvstendige VM-er er opprettet av Codex.

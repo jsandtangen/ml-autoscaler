@@ -940,10 +940,59 @@ read-only shadow process and cannot start or stop resources.
 
 On 2026-10-20, the local host was Windows 11 Home with Docker Desktop/WSL;
 no usable Hyper-V, VirtualBox, VMware or QEMU management tools were found.
-The user requires independent VMs. Connecting a real VM backend therefore
-awaits local VirtualBox installation and a verified fixed pool of 2–3 Linux VMs.
-The user selected the local Windows PC and requested setup guidance before
-backend implementation; see [the VirtualBox setup guide](docs/local-virtualbox-setup.md).
-The active loop remains fake. The Docker start/stop demo was verified separately
-with real container IDs and cleanup; it does not satisfy the independent-VM test.
-No paid cloud resources have been provisioned.
+The user requires independent VMs. The Docker start/stop demo proves container
+operations only. No paid cloud resources have been provisioned.
+
+## Selected infrastructure: plan B
+
+On 2026-10-20, the user selected keeping the existing ACIT4410 monitoring
+installation separate from Ruby Acorn. Continue using the existing local Compose
+stack for Ruby Acorn; fake control remains the active default and TimesFM remains
+in shadow mode. No additional VM or VirtualBox installation is needed for this
+decision. Real OpenStack VM control remains future work requiring explicit setup.
+
+The separate `prometheus-vm` (192.168.1.179) runs the five-service Swarm stack
+`prom`. It has persistent Prometheus/Grafana volumes and local configuration
+changes. Preserve it until a backup approach, destination and protection method
+are agreed. Selecting plan B does not authorize backup execution, data export,
+service changes or deletion of existing VMs.
+
+The ACIT4410 exporter provides `steam_player_count`, not `player_count`. Its
+health endpoint confirms historical replay. At audit time there were 362
+registered games and 189 active player series. The retained CS:GO/Dota 2
+Prometheus series had regular one-minute scrapes but about 12% zeros, including
+a shared 42h50m zero episode despite successful scrapes. These are separate from
+the local live Steam exporter and must not be silently merged or used as live
+demand. The source API `/games/730/history` provides 69,120 five-minute records
+over 240 days, dated 2017-12-14 to 2018-08-10 UTC, with 1,115 zero records.
+Future experiments must preserve original source timestamps, flag suspect zeros
+and use chronological past-only evaluation. No source dataset was saved during
+the audit, and no TimesFM inference was triggered by it.
+
+## Approved monitoring backup workflow
+
+The user approved a one-off backup to
+`C:\Users\jsand\RubyAcornBackups\prometheus-vm\2026-10-20`, protected by
+password-based AES-256 7z encryption. This does not authorize VM deletion,
+service replacement or future scheduled backups.
+
+`scripts/backup_prometheus_vm.py` prepares a new TSDB snapshot including head,
+an online SQLite backup, Grafana persistent assets, the complete configuration
+repository (including local changes), and persisted Alertmanager state. It uses
+the existing SSH route without reading key contents or printing configuration
+values. Original services remain running. Individual files are checked against
+a SHA-256 manifest after transfer into a private Windows staging directory.
+
+The final step opens `scripts/finish_backup_encryption.ps1` in a visible local
+console. The user enters their password directly into official portable 7-Zip;
+the password is not passed in process arguments, scripts or chat. The helper
+encrypts the archive and its headers, tests the encrypted archive, writes its
+SHA-256 and a `*-status.json` receipt, then removes only its own local plaintext
+working directory. `awaiting_local_password` is not a completed encrypted backup.
+
+Only after the receipt says `encrypted_and_verified`, the explicit
+`--cleanup-verified STATUS_PATH` operation validates the final archive hash and
+removes that run's remote staging tree and created snapshot. It never removes
+the original TSDB, Grafana database, repository or pre-existing snapshots.
+Backups are consistent per database, not a simultaneous transaction across all
+services. An isolated full restore rehearsal remains a separate later check.
