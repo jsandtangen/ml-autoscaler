@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from scaler.forecasting import PlayerObservation
 from scaler.strategies.base import ScalingStrategy
 from scaler.strategies.capacity import CapacityPolicy
+from scaler.engine.scaling_limits import ScalingLimits
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,7 @@ def simulate_scaling(
     policy: CapacityPolicy,
     evaluation_start: int,
     vm_cost_per_hour: float = 0.10,
+    limits: ScalingLimits | None = None,
 ) -> tuple[dict[str, dict], list[dict]]:
     """At hour t, decide the ready fleet at t+1 using only counts through t.
 
@@ -51,11 +53,12 @@ def simulate_scaling(
     holds its existing fleet, since no subsequent period is evaluated.
     """
     hours = validate_replay(observations, evaluation_start)
+    limits = limits or ScalingLimits(policy.minimum_instances)
     if not math.isfinite(vm_cost_per_hour) or vm_cost_per_hour < 0:
         raise ValueError("VM price must be finite and nonnegative")
     if not strategies:
         raise ValueError("At least one strategy is required")
-    initial = policy.desired_instances(observations[0].player_count)
+    initial = limits.plan(policy.required_instances(observations[0].player_count), 0).cycle_target_instances
     ready = {name: initial for name in strategies}
     results = {name: {
         "evaluated_hours": 0, "total_cost_eur": 0.0,
@@ -75,6 +78,11 @@ def simulate_scaling(
             desired = running if terminal else strategy.desired_instances(row.player_count)
             if type(desired) is not int or desired < 0:
                 raise ValueError("Strategies must request a nonnegative integer fleet")
+            forecast = getattr(strategy, "last_prediction", None)
+            required = (policy.required_instances(forecast if forecast is not None else row.player_count)
+                        if getattr(strategy, "policy", None) is not None else desired)
+            plan = limits.plan(required, running)
+            desired = running if terminal else plan.cycle_target_instances
             starting = max(0, desired-running)
             stopping = max(0, running-desired)
             capacity = running * policy.players_per_instance
@@ -103,6 +111,8 @@ def simulate_scaling(
                     "global_players": row.player_count, "customer_players": demand,
                     "running_instances": running, "capacity_players": capacity,
                     "requested_next_instances": desired, "starting_instances": starting,
+                    "required_instances": required, "desired_instances": plan.desired_instances,
+                    "unmet_instances": max(0, policy.required_instances(row.player_count)-running),
                     "billable_instances": billable, "shortfall_players": shortfall,
                     "period_cost_eur": cost, "forecast_status": status,
                     "predicted_next_global_players": None if terminal else

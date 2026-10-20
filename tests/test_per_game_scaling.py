@@ -28,7 +28,7 @@ def config(run_once=True):
         metric_name="steam_player_count",
         label_filters={"appid": "999", "region": "eu"},
         run_once=run_once,
-        games=(GameConfig("730", "aggressive"), GameConfig("570", "threshold")),
+        games=(GameConfig("730", "reactive_capacity"), GameConfig("570", "threshold")),
     )
 
 
@@ -41,19 +41,19 @@ def test_each_game_uses_its_own_strategy_and_query(caplog):
         {"appid": "730", "region": "eu"}, {"appid": "570", "region": "eu"}
     ]
     body = metrics.render().decode()
-    assert 'running_instances{appid="730"} 5' in body
-    assert 'running_instances{appid="570"} 4' in body
+    assert 'running_instances{appid="730"} 2' in body
+    assert 'running_instances{appid="570"} 2' in body
     assert 'player_count{appid="730"} 700000' in body
-    assert 'desired_instances{appid="730"} 5' in body
+    assert 'desired_instances{appid="730"} 7' in body
     assert 'desired_instances{appid="570"} 4' in body
-    assert 'strategy{appid="730",name="aggressive"} 1' in body
+    assert 'strategy{appid="730",name="reactive_capacity"} 1' in body
     assert 'strategy{appid="570",name="threshold"} 1' in body
-    assert "appid=730 strategy=aggressive" in caplog.text
+    assert "appid=730 strategy=reactive_capacity" in caplog.text
     assert "appid=570 strategy=threshold" in caplog.text
 
 
 def test_each_game_retains_independent_state_across_cycles(monkeypatch, caplog):
-    client = PerGameClient({"730": [700_000, 50], "570": [700_000, 150]})
+    client = PerGameClient({"730": [700_000, 50], "570": [700_000, 50]})
     metrics = AutoscalerMetrics()
     monkeypatch.setattr("main.start_metrics_server", lambda *args: None)
     sleeps = []
@@ -67,11 +67,10 @@ def test_each_game_retains_independent_state_across_cycles(monkeypatch, caplog):
         run_loop(config(False), client=client, metrics=metrics, sleep=sleep)
 
     assert sleeps == [1, 1]
-    assert "players=50 current_instances=5 desired_instances=2" in caplog.text
-    assert "players=150 current_instances=4 desired_instances=2" in caplog.text
+    assert "players=50 current_instances=2 desired_instances=1" in caplog.text
     body = metrics.render().decode()
-    assert 'running_instances{appid="730"} 2' in body
-    assert 'running_instances{appid="570"} 2' in body
+    assert 'running_instances{appid="730"} 1' in body
+    assert 'running_instances{appid="570"} 1' in body
     assert 'scaling_action{appid="730"} -1' in body
     assert 'scaling_action{appid="570"} -1' in body
 
@@ -98,11 +97,12 @@ def test_failure_for_one_game_preserves_state_and_other_game_continues(monkeypat
         run_loop(config(False), client=client, metrics=metrics, sleep=sleep)
 
     body = metrics.render().decode()
-    assert 'running_instances{appid="730"} 5' in body
+    assert 'running_instances{appid="730"} 2' in body
     assert 'running_instances{appid="570"} 2' in body
     assert "missing sample appid=730" in caplog.text
     assert "missing sample appid=570" in caplog.text
     assert 'player_count{appid="730"} 700000' in body
     assert 'scaling_action{appid="730"} 1' in body
-    first_game = lambda snapshot: [line for line in snapshot.splitlines() if 'appid="730"' in line]
+    assert 'input_available{appid="730"} 0' in body
+    first_game = lambda snapshot: [line for line in snapshot.splitlines() if 'appid="730"' in line and not line.startswith("input_available")]
     assert first_game(snapshots[0]) == first_game(snapshots[1])

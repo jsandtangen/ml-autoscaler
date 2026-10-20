@@ -1,8 +1,11 @@
 """Read-only Prometheus inputs for a separate shadow observer."""
 import math
+from dataclasses import asdict
 
 from scaler.data.client import GameDataClient, PlayerCountNotFoundError, PrometheusResponseError
 from scaler.forecasting import PlayerObservation
+from scaler.strategies.capacity import CapacityPolicy
+from scaler.engine.scaling_limits import ScalingLimits
 
 
 class ShadowPrometheusClient(GameDataClient):
@@ -26,7 +29,7 @@ class ShadowPrometheusClient(GameDataClient):
         return PlayerObservation(timestamp, int(count))
 
     def live_decision(self, appid: str, now: float) -> dict:
-        query = '{__name__=~"running_instances|desired_instances|strategy|last_decision_timestamp_seconds",job="autoscaler"}'
+        query = '{__name__=~"running_instances|desired_instances|strategy|last_decision_timestamp_seconds|capacity_source_info|capacity_player_share|capacity_players_per_instance|capacity_headroom_fraction|capacity_minimum_instances|maximum_instances|max_scaling_change",job="autoscaler"}'
         results = self._extract_results(self._query_prometheus(query))
         try:
             selected = [row for row in results if row["metric"].get("appid") == appid]
@@ -46,10 +49,25 @@ class ShadowPrometheusClient(GameDataClient):
                 raise ValueError("Invalid autoscaler values")
             if not running.is_integer() or not desired.is_integer() or timestamp > now+5:
                 raise ValueError("Invalid autoscaler counts or timestamp")
+            source_appid = groups.get("capacity_source_info", {}).get("metric", {}).get("steam_appid")
+            if source_appid is not None and source_appid != appid:
+                raise ValueError("Live source is configured for another game")
         except (KeyError, TypeError, ValueError, IndexError) as error:
             raise PrometheusResponseError("Live autoscaler decision unavailable or ambiguous") from error
-        return {"strategy": strategy, "running_instances": int(running),
+        snapshot = {"strategy": strategy, "running_instances": int(running),
                 "desired_instances": int(desired), "decision_timestamp": timestamp,
                 "age_seconds": now-timestamp, "fresh": now-timestamp <= 120,
-                "appid_verified": selected[0]["metric"].get("appid") == appid,
+                "appid_verified": selected[0]["metric"].get("appid") == appid or source_appid == appid,
                 "label_mode": "per_game" if selected[0]["metric"].get("appid") else "legacy"}
+        config_names = ("capacity_player_share", "capacity_players_per_instance", "capacity_headroom_fraction",
+                        "capacity_minimum_instances", "maximum_instances", "max_scaling_change")
+        if all(name in groups for name in config_names):
+            try:
+                share, per_vm, buffer, minimum, maximum, change = [float(groups[name]["value"][1]) for name in config_names]
+                if not all(v.is_integer() for v in (per_vm, minimum, maximum, change)):
+                    raise ValueError("Expected integer capacity limits")
+                snapshot["capacity_policy"] = asdict(CapacityPolicy(share,int(per_vm),buffer,int(minimum)))
+                snapshot["scaling_limits"] = asdict(ScalingLimits(int(minimum),int(maximum),int(change)))
+            except (TypeError, ValueError, OverflowError) as error:
+                raise PrometheusResponseError("Malformed live capacity configuration") from error
+        return snapshot

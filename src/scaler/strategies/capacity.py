@@ -1,4 +1,4 @@
-"""Explicit capacity assumptions for offline scaling experiments."""
+"""Shared prototype capacity assumptions for reactive and predictive decisions."""
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_CEILING
 import math
@@ -8,8 +8,8 @@ from .base import ScalingStrategy
 
 @dataclass(frozen=True)
 class CapacityPolicy:
-    player_share: float
-    players_per_instance: int
+    player_share: float = 0.001
+    players_per_instance: int = 100
     headroom_fraction: float = 0.10
     minimum_instances: int = 1
 
@@ -28,20 +28,23 @@ class CapacityPolicy:
             raise ValueError("Player count must be finite and nonnegative")
         return global_players * self.player_share
 
-    def desired_instances(self, global_players: float) -> int:
+    def required_instances(self, global_players: float) -> int:
         self.customer_players(global_players)
         # Avoid an extra instance from binary rounding at exact boundaries.
         demand = Decimal(str(global_players)) * Decimal(str(self.player_share))
         buffered = demand * (1 + Decimal(str(self.headroom_fraction)))
         instances = int((buffered / self.players_per_instance).to_integral_value(rounding=ROUND_CEILING))
-        return max(self.minimum_instances, instances)
+        return instances
+
+    def desired_instances(self, global_players: float) -> int:
+        return max(self.minimum_instances, self.required_instances(global_players))
 
 
 class ReactiveCapacityStrategy(ScalingStrategy):
     """Apply the capacity rule to the latest observed global player count."""
 
-    def __init__(self, policy: CapacityPolicy):
-        self.policy = policy
+    def __init__(self, policy: CapacityPolicy | None = None):
+        self.policy = policy or CapacityPolicy()
 
     def desired_instances(self, player_count: int) -> int:
         return self.policy.desired_instances(player_count)

@@ -46,7 +46,7 @@ def test_engine_controls_resources_through_docker_controller():
     docker = FakeDocker()
     controller = DockerController("test", "730", runner=docker)
     engine = DecisionEngine(ThresholdStrategy(), controller)
-    for players, expected in [(50, 1), (150, 2), (700_000, 4), (50, 1)]:
+    for players, expected in [(50, 1), (150, 2), (700_000, 4), (50, 2), (50, 1)]:
         assert engine.evaluate(players) == expected
         assert len(docker.containers) == expected
     assert len([cmd for cmd in docker.commands if cmd[1] == "stop"]) == 3

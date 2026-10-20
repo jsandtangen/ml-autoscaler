@@ -6,18 +6,20 @@ from dataclasses import asdict
 
 from scaler.forecasting import PlayerObservation
 from scaler.strategies.capacity import CapacityPolicy
+from scaler.engine.scaling_limits import ScalingLimits
 from scaler.timesfm_forecasting import MODEL_ID
 
 
 class ShadowObserver:
     def __init__(self, appid, forecaster, policy: CapacityPolicy, window_size=192,
-                 seed=(), live=(), pending=None, max_sample_age=90, boundary_grace=300):
+                 seed=(), live=(), pending=None, max_sample_age=90, boundary_grace=300, limits=None):
         if type(window_size) is not int or window_size < 1:
             raise ValueError("Shadow window must be a positive integer")
         if not 0 < boundary_grace < 3600 or not 0 < max_sample_age <= boundary_grace:
             raise ValueError("Invalid freshness/boundary limits")
         self.appid, self.forecaster, self.policy = appid, forecaster, policy
         self.window_size = window_size
+        self.limits = limits or ScalingLimits(policy.minimum_instances)
         self.max_sample_age, self.boundary_grace = max_sample_age, boundary_grace
         combined = {}
         for row in (*seed, *live):
@@ -69,13 +71,21 @@ class ShadowObserver:
                 events.append({"event": "outcome_unavailable", "appid": self.appid,
                     "target_timestamp": pending["target_timestamp"], "reason": "missed_hour"})
             self.pending = None
-        reactive = self.policy.desired_instances(sample.player_count)
+        reactive_required = self.policy.required_instances(sample.player_count)
+        reactive = self.limits.plan(reactive_required, 0).desired_instances
         prediction, desired, error_message = None, reactive, None
         state = "warmup"
-        if len(self.history) == self.window_size:
+        required = reactive_required
+        mismatch = live_decision and live_decision.get("fresh") and (
+            ("capacity_policy" in live_decision and live_decision["capacity_policy"] != asdict(self.policy))
+            or ("scaling_limits" in live_decision and live_decision["scaling_limits"] != asdict(self.limits)))
+        if mismatch:
+            state, error_message = "configuration_mismatch", "Shadow policy/limits differ from the active autoscaler"
+        elif len(self.history) == self.window_size:
             try:
                 prediction = float(self.forecaster.predict([row.player_count for row in self.history]))
-                desired = self.policy.desired_instances(prediction)
+                required = self.policy.required_instances(prediction)
+                desired = self.limits.plan(required, 0).desired_instances
                 state = "forecast"
             except (ValueError, TypeError, RuntimeError, OSError) as error:
                 prediction, state, error_message = None, "fallback", str(error)
@@ -83,12 +93,21 @@ class ShadowObserver:
             "sample_timestamp": slot, "source_timestamp": sample.timestamp,
             "issued_at": now, "target_timestamp": slot+3600,
             "status": state, "model_id": MODEL_ID, "policy": asdict(self.policy),
+            "limits": asdict(self.limits),
             "context_observations": len(self.history), "required_observations": self.window_size,
             "global_players": sample.player_count,
             "customer_players": self.policy.customer_players(sample.player_count),
             "reactive_capacity_desired_instances": reactive,
+            "reactive_capacity_required_instances": reactive_required,
+            "shadow_required_instances": required,
             "predicted_global_players": prediction, "shadow_desired_instances": desired,
             "live_decision": live_decision, "error": error_message}
+        current = live_decision.get("running_instances") if live_decision else None
+        verified = live_decision and live_decision.get("fresh") and live_decision.get("appid_verified")
+        decision["shadow_cycle_target_instances"] = self.limits.plan(required, current).cycle_target_instances if verified else None
+        if mismatch:
+            decision.update(shadow_required_instances=None, shadow_desired_instances=None,
+                            shadow_cycle_target_instances=None)
         if state == "forecast":
             self.pending = decision
         events.append(decision)

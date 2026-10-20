@@ -6,11 +6,15 @@ import math
 import os
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import json
+from pathlib import Path
 
 from scaler.data.client import GameDataClient, GameDataClientError
 from scaler.data.history import PlayerHistoryStore
 from scaler.engine.decision_engine import DecisionEngine
+from scaler.engine.scaling_limits import ScalingLimits
+from scaler.strategies.capacity import CapacityPolicy
 from scaler.exporter.autoscaler_metrics import (
     AutoscalerMetrics,
     AutoscalerMetricsConfig,
@@ -51,6 +55,11 @@ class AutoscalerConfig:
     docker_namespace: str = "ruby-acorn-demo"
     docker_max_instances: int = 5
     player_history_path: str | None = None
+    capacity_policy: CapacityPolicy = field(default_factory=CapacityPolicy)
+    max_instances: int = 7
+    max_scaling_change: int = 2
+    max_sample_age_seconds: int = 90
+    shadow_decisions_dir: str | None = "data/shadow-capacity"
 
 
 def parse_label_filter(value: str) -> tuple[str, str]:
@@ -89,7 +98,7 @@ def positive_float(value: str) -> float:
     except ValueError as error:
         raise argparse.ArgumentTypeError(f"Expected a number, got {value}") from error
 
-    if parsed <= 0:
+    if not math.isfinite(parsed) or parsed <= 0:
         raise argparse.ArgumentTypeError("Value must be greater than zero")
 
     return parsed
@@ -129,6 +138,14 @@ def nonnegative_int(value: str) -> int:
 
 def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
     parser = argparse.ArgumentParser(description="Run the Ruby Acorn autoscaler loop.")
+    parser.add_argument("--player-share", type=nonnegative_float, default=os.getenv("AUTOSCALER_PLAYER_SHARE", "0.001"))
+    parser.add_argument("--players-per-instance", type=positive_int, default=os.getenv("AUTOSCALER_PLAYERS_PER_INSTANCE", "100"))
+    parser.add_argument("--headroom-fraction", type=nonnegative_float, default=os.getenv("AUTOSCALER_HEADROOM_FRACTION", "0.10"))
+    parser.add_argument("--minimum-instances", type=nonnegative_int, default=os.getenv("AUTOSCALER_MINIMUM_INSTANCES", "1"))
+    parser.add_argument("--max-instances", type=positive_int, default=os.getenv("AUTOSCALER_MAX_INSTANCES"))
+    parser.add_argument("--max-scaling-change", type=positive_int, default=os.getenv("AUTOSCALER_MAX_SCALING_CHANGE", "2"))
+    parser.add_argument("--max-sample-age-seconds", type=positive_int, default=os.getenv("AUTOSCALER_MAX_SAMPLE_AGE_SECONDS", "90"))
+    parser.add_argument("--shadow-decisions-dir", default=os.getenv("AUTOSCALER_SHADOW_DECISIONS_DIR", "data/shadow-capacity"))
     parser.add_argument(
         "--controller", choices=["fake", "docker"],
         default=os.getenv("AUTOSCALER_CONTROLLER", "fake"),
@@ -221,6 +238,15 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
     )
 
     args = parser.parse_args(argv)
+    maximum = args.max_instances if args.max_instances is not None else (
+        args.docker_max_instances if args.controller == "docker" else 7)
+    if args.controller == "docker":
+        maximum = min(maximum, args.docker_max_instances)
+    try:
+        policy = CapacityPolicy(args.player_share, args.players_per_instance, args.headroom_fraction, args.minimum_instances)
+        ScalingLimits(policy.minimum_instances, maximum, args.max_scaling_change)
+    except ValueError as error:
+        parser.error(str(error))
     if args.strategy not in STRATEGIES:
         parser.error(f"Unknown scaling strategy: {args.strategy}")
     if args.controller not in {"fake", "docker"}:
@@ -250,6 +276,8 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         docker_namespace=args.docker_namespace,
         docker_max_instances=args.docker_max_instances,
         player_history_path=args.player_history_path,
+        capacity_policy=policy, max_instances=maximum, max_scaling_change=args.max_scaling_change,
+        max_sample_age_seconds=args.max_sample_age_seconds, shadow_decisions_dir=args.shadow_decisions_dir,
     )
 
 
@@ -264,7 +292,12 @@ def build_engine(
         controller = DockerController(config.docker_namespace, game, config.docker_max_instances)
     else:
         raise ValueError(f"Unknown controller: {config.controller_backend}")
-    return DecisionEngine(create_strategy(strategy_name), controller)
+    policy = config.capacity_policy if config else CapacityPolicy()
+    maximum = config.max_instances if config else 7
+    if config and config.controller_backend == "docker":
+        maximum = min(maximum, config.docker_max_instances)
+    limits = ScalingLimits(policy.minimum_instances, maximum, config.max_scaling_change if config else 2)
+    return DecisionEngine(create_strategy(strategy_name, policy), controller, limits, policy)
 
 
 def evaluate_once(
@@ -274,35 +307,53 @@ def evaluate_once(
     metrics: AutoscalerMetrics | None = None,
     metrics_appid: str | None = None,
     history: PlayerHistoryStore | None = None,
+    shadow_decisions_dir: str | None = None,
 ) -> int:
     player_count = client.get_player_count(label_filters)
     if history:
         history.record(player_count, appid=metrics_appid or label_filters.get("appid"))
     current_instances = engine.vm_controller.running_instances()
     desired_instances = engine.strategy.desired_instances(player_count)
+    if metrics and engine.capacity_policy is not None:
+        metrics.record_capacity_demand(player_count, engine.capacity_policy,
+                                       engine.limits, desired_instances, current_instances, metrics_appid)
     running_instances = engine.apply_desired_instances(desired_instances)
+    desired_instances = engine.last_plan.desired_instances
     if metrics:
         metrics.record_decision(
             player_count, current_instances, desired_instances, running_instances,
             strategy_name(engine.strategy), appid=metrics_appid,
         )
+        if shadow_decisions_dir and engine.capacity_policy is not None:
+            appid = metrics_appid or label_filters.get("appid")
+            metrics.clear_prediction(metrics_appid)
+            if appid:
+                try:
+                    decision = json.loads((Path(shadow_decisions_dir)/appid/"latest_decision.json").read_text(encoding="utf-8"))
+                    metrics.record_shadow_prediction(decision, engine.capacity_policy, engine.limits, metrics_appid, appid)
+                except (OSError, ValueError, KeyError, TypeError, OverflowError):
+                    pass  # Optional shadow telemetry never affects resource control.
 
-    if desired_instances > current_instances:
-        action = f"scaled up by {desired_instances - current_instances}"
-    elif desired_instances < current_instances:
-        action = f"scaled down by {current_instances - desired_instances}"
+    if running_instances > current_instances:
+        action = f"scaled up by {running_instances - current_instances}"
+    elif running_instances < current_instances:
+        action = f"scaled down by {current_instances - running_instances}"
     else:
         action = "no scaling action"
 
     logger.info(
         "players=%s current_instances=%s desired_instances=%s "
-        "running_instances=%s action=%s appid=%s",
+        "running_instances=%s action=%s appid=%s required_instances=%s "
+        "cycle_target_instances=%s unmet_instances=%s",
         player_count,
         current_instances,
         desired_instances,
         running_instances,
         action,
         label_filters.get("appid", "unspecified"),
+        engine.capacity_policy.required_instances(player_count) if engine.capacity_policy else engine.last_plan.required_instances,
+        engine.last_plan.cycle_target_instances,
+        max(0, (engine.capacity_policy.required_instances(player_count) if engine.capacity_policy else engine.last_plan.required_instances)-running_instances),
     )
 
     return running_instances
@@ -318,6 +369,7 @@ def run_loop(
     client = client or GameDataClient(
         config.prometheus_url,
         metric_name=config.metric_name,
+        max_sample_age_seconds=config.max_sample_age_seconds,
     )
     metrics = metrics or AutoscalerMetrics()
     metrics.set_cost_model(CostModel(config.vm_cost_per_hour, config.fixed_baseline_instances))
@@ -341,6 +393,7 @@ def run_loop(
         ]
 
     for appid, labels, game_engine in evaluations:
+        metrics.set_source_appid(labels.get("appid"), appid)
         metrics.set_running_instances(game_engine.vm_controller.running_instances(), appid=appid)
         metrics.set_strategy(strategy_name(game_engine.strategy), appid=appid)
 
@@ -365,9 +418,11 @@ def run_loop(
         for appid, labels, game_engine in evaluations:
             try:
                 evaluate_once(
-                    client, game_engine, labels, metrics, metrics_appid=appid, history=history
+                    client, game_engine, labels, metrics, metrics_appid=appid, history=history,
+                    shadow_decisions_dir=config.shadow_decisions_dir,
                 )
             except GameDataClientError as error:
+                metrics.set_input_available(False, appid)
                 logger.warning(
                     "Skipping autoscaler evaluation: %s appid=%s",
                     error,

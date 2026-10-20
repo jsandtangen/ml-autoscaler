@@ -18,6 +18,7 @@ from scaler.data.shadow_source import ShadowPrometheusClient
 from scaler.forecasting import load_player_history
 from scaler.shadow import ShadowObserver
 from scaler.strategies.capacity import CapacityPolicy
+from scaler.engine.scaling_limits import ScalingLimits
 from scaler.timesfm_forecasting import TimesFMForecaster, MODEL_ID
 
 
@@ -62,6 +63,8 @@ def parse_args(argv=None):
     parser.add_argument("--players-per-instance", type=int, default=100)
     parser.add_argument("--headroom-fraction", type=float, default=0.10)
     parser.add_argument("--minimum-instances", type=int, default=1)
+    parser.add_argument("--max-instances", type=int, default=7)
+    parser.add_argument("--max-scaling-change", type=int, default=2)
     parser.add_argument("--poll-seconds", type=float, default=30)
     parser.add_argument("--model-cache-dir", default=".model-cache")
     parser.add_argument("--allow-model-download", action="store_true")
@@ -73,13 +76,14 @@ def parse_args(argv=None):
         parser.error("Poll interval must be finite, positive and at most 90 seconds")
     if args.window_size < 1:
         parser.error("Window size must be positive")
-    args.output_dir = args.output_dir or Path("data/shadow")/args.appid
+    args.output_dir = args.output_dir or Path("data/shadow-capacity")/args.appid
     return args
 
 
 def run(args, client=None, forecaster=None, clock=time.time, sleep=time.sleep):
     policy = CapacityPolicy(args.player_share, args.players_per_instance,
                             args.headroom_fraction, args.minimum_instances)
+    limits = ScalingLimits(args.minimum_instances, args.max_instances, args.max_scaling_change)
     client = client or ShadowPrometheusClient(args.prometheus_url, metric_name=args.metric_name)
     forecaster = forecaster or TimesFMForecaster(args.window_size, 1, args.model_cache_dir,
                                                local_files_only=not args.allow_model_download)
@@ -87,6 +91,7 @@ def run(args, client=None, forecaster=None, clock=time.time, sleep=time.sleep):
         config = {"appid": args.appid, "prometheus_url": args.prometheus_url,
             "metric_name": args.metric_name, "model_id": MODEL_ID,
             "window_size": args.window_size, "policy": asdict(policy),
+            "limits": asdict(limits),
             "period_seconds": 3600, "boundary_grace_seconds": 300, "max_sample_age_seconds": 90}
         metadata_path = args.output_dir/"metadata.json"
         if metadata_path.exists():
@@ -106,7 +111,7 @@ def run(args, client=None, forecaster=None, clock=time.time, sleep=time.sleep):
                     pending = event if event["status"] == "forecast" else None
                 elif event.get("event") in ("outcome", "outcome_unavailable"):
                     pending = None
-        observer = ShadowObserver(args.appid, forecaster, policy, args.window_size, seed, live, pending)
+        observer = ShadowObserver(args.appid, forecaster, policy, args.window_size, seed, live, pending, limits=limits)
         store = PlayerHistoryStore(samples_path)
         with events_path.open("a", encoding="utf-8") as file:
             file.write(json.dumps({"event": "session", "started_at": clock(), "config": config,

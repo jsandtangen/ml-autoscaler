@@ -88,9 +88,9 @@ def test_loop_uses_configured_cost_model():
     metrics = AutoscalerMetrics()
     run_loop(config, client=FakeGameDataClient([150]), metrics=metrics)
     body = metrics.render().decode()
-    assert "dynamic_cost 0.5\n" in body
+    assert "dynamic_cost 0.25\n" in body
     assert "fixed_baseline_cost 1.5\n" in body
-    assert "savings 1\n" in body
+    assert "savings 1.25\n" in body
 
 
 @pytest.mark.parametrize("cli", [False, True])
@@ -129,9 +129,9 @@ class FakeGameDataClient:
         return self.player_counts.pop(0)
 
 
-def test_strategy_defaults_to_threshold(monkeypatch):
+def test_strategy_defaults_to_shared_capacity(monkeypatch):
     monkeypatch.delenv("AUTOSCALER_STRATEGY", raising=False)
-    assert load_config([]).strategy_name == "threshold"
+    assert load_config([]).strategy_name == "reactive_capacity"
 
 
 @pytest.mark.parametrize("source", ["cli", "environment"])
@@ -147,7 +147,8 @@ def test_strategy_selection_scales_for_customer_preference(monkeypatch, source, 
     run_loop(config, client=FakeGameDataClient([700_000]), metrics=metrics)
 
     assert config.strategy_name == strategy
-    assert f"running_instances {desired}" in metrics.render().decode("utf-8")
+    assert "running_instances 2\n" in metrics.render().decode("utf-8")
+    assert f"desired_instances {desired}\n" in metrics.render().decode("utf-8")
 
 
 @pytest.mark.parametrize("argv", [[], ["--strategy", "unknown"]])
@@ -179,7 +180,8 @@ def test_registered_strategy_is_selected_and_called_once(monkeypatch):
     run_loop(config, client=FakeGameDataClient([150]), metrics=metrics)
 
     assert calls == [150]
-    assert "running_instances 7" in metrics.render().decode("utf-8")
+    assert "running_instances 2" in metrics.render().decode("utf-8")
+    assert "desired_instances 7" in metrics.render().decode("utf-8")
 
 
 def test_load_config_reads_environment_and_cli_labels(monkeypatch):

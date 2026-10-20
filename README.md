@@ -130,9 +130,12 @@ $env:AUTOSCALER_LABELS = "appid=730"
 .\.venv\Scripts\python.exe main.py
 ```
 
-The default strategy is explicitly named `threshold`. Select it with
-`--strategy threshold` or `AUTOSCALER_STRATEGY=threshold` (also supported by
-Compose). Unknown strategy names are rejected at startup.
+The default strategy is `reactive_capacity`. It applies the shared customer
+capacity model below. Select it with `--strategy reactive_capacity` or
+`AUTOSCALER_STRATEGY=reactive_capacity`. Unknown names fail at startup.
+
+`threshold` and `aggressive` remain explicit legacy options for reproducing
+older demonstrations; their global-player thresholds are not the default.
 
 Customers who prioritize spare capacity can select `aggressive` with
 `--strategy aggressive` or `AUTOSCALER_STRATEGY=aggressive`. It uses the same
@@ -147,14 +150,16 @@ thresholds plus one extra VM as a buffer, including at zero players:
 
 These are prototype thresholds, not validated capacity limits. `threshold`
 uses fewer VMs; `aggressive` trades that lower cost for extra capacity. Neither
-strategy delays scaling or guarantees that the capacity is sufficient.
+strategy has its own cooldown or guarantees sufficient capacity. The decision
+engine now applies fleet bounds and the two-instance change limit to all strategies.
 
 ```powershell
 .\.venv\Scripts\python.exe main.py --once --label appid=730 --strategy aggressive
 ```
 
 The scaling flow is `player_count -> strategy -> desired_instances`, followed by
-the decision engine applying the difference through `FakeVMController`.
+the decision engine applying fleet bounds and a per-cycle change limit through
+the selected existing controller (`FakeVMController` by default).
 `ThresholdStrategy` implements the `ScalingStrategy.desired_instances` contract:
 below 100 players it requests 1 instance, from 100 to 299 it requests 2, from
 300 to 599 it requests 3, and from 600 it requests 4. To add another algorithm,
@@ -164,6 +169,93 @@ the autoscaler loop does not need algorithm-specific changes.
 The loop logs and
 skips Prometheus/client errors instead of treating missing or invalid metrics as
 zero players.
+
+
+### Shared capacity model and decision limits
+
+The active default now uses global Steam counts as the source and a simulated
+customer share as the workload. These are prototype assumptions, not measured
+game-server capacities:
+
+```text
+customer_players = global_players * player_share
+required_instances = ceil(customer_players * (1 + headroom_fraction) / players_per_instance)
+desired_instances = bound(required_instances, minimum, maximum)
+cycle_target_instances = current + bound(desired_instances - current, -max_change, max_change)
+```
+
+| Setting | Default | CLI / environment |
+| --- | --- | --- |
+| Customer share | 0.001 (0.1%) | `--player-share` / `AUTOSCALER_PLAYER_SHARE` |
+| Players per VM | 100 | `--players-per-instance` / `AUTOSCALER_PLAYERS_PER_INSTANCE` |
+| Safety buffer | 0.10 (10%) | `--headroom-fraction` / `AUTOSCALER_HEADROOM_FRACTION` |
+| Minimum target VMs | 1 | `--minimum-instances` / `AUTOSCALER_MINIMUM_INSTANCES` |
+| Maximum target VMs | 7 with fake; existing Docker limit in Docker mode | `--max-instances` / `AUTOSCALER_MAX_INSTANCES` |
+| Change per decision cycle | 2 | `--max-scaling-change` / `AUTOSCALER_MAX_SCALING_CHANGE` |
+| Maximum Prometheus sample age | 90 seconds | `--max-sample-age-seconds` / `AUTOSCALER_MAX_SAMPLE_AGE_SECONDS` |
+
+535,000 global players require 6 VMs; 700,000 require 8 before bounding to 7.
+From zero, successive decisions at 535,000 produce 2, 4, 6 running instances.
+At zero players the target is 1; a larger fleet shrinks by at most 2 each cycle.
+An already-existing over-limit fleet also converges gradually rather than
+violating the change limit with an immediate bulk removal. There is no cooldown
+or hysteresis; the change limit applies once per configured loop cycle (30s by
+default), not once per hour. Gradual changes can temporarily leave demand unmet.
+
+The Docker backend remains explicitly selected by `--controller docker` and
+keeps its existing namespace-wide 1?5 container bound. The effective per-game
+maximum is the lower of the capacity maximum and Docker maximum. Multiple
+games still share that namespace-wide budget: exhaustion raises ControllerError,
+actual counts are refreshed when possible, and unmet demand remains visible.
+This change does not add a VM provider or start game containers automatically.
+The running Compose setup still uses the in-memory fake controller.
+
+Active input queries use `last_over_time(selector[90s])` to exclude old scrape
+samples. Empty/stale/unavailable or invalid counts skip resource operations,
+preserve the last successful decision, and set `input_available=0`; valid zero
+players are distinct from query failure. The freshness bound concerns Prometheus
+scrapes, not the age of Steam's own upstream cached count.
+
+Capacity, simulation and shadow mode reuse `CapacityPolicy` and `ScalingLimits`.
+Pass the same policy/limit flags to the shadow observer. Its configuration now
+includes limits, so existing pre-limit runs need a new output directory. Fresh
+live capacity configuration is checked before it issues a forecast proposal;
+a mismatch is logged as `configuration_mismatch` with no VM proposal. Uncapped
+`shadow_required_instances`, bounded `shadow_desired_instances`, and the
+rate-limited `shadow_cycle_target_instances` are recorded separately. The cycle
+target requires a fresh, game-verified live running count; otherwise it is null.
+
+The active metrics exporter reads unexpired shadow predictions from
+`data/shadow-capacity/APPID/latest_decision.json` (in Compose:
+`/app/data/shadow-capacity`). Override the base with `--shadow-decisions-dir` /
+`AUTOSCALER_SHADOW_DECISIONS_DIR`. It verifies game, model and capacity assumptions
+and recomputes requirements with the shared model. It never uses this file to
+control resources. Prediction samples disappear after their target expires.
+
+New gauges complement the existing live metrics:
+
+| Metric | Meaning |
+| --- | --- |
+| `global_player_count`, `customer_player_count` | Latest valid source and modeled customer demand |
+| `required_instances` | Uncapped buffered demand, including 0 before the minimum |
+| `desired_instances` | Last successful decision's bounded fleet target |
+| `cycle_target_instances` | Target after this cycle's rate limit |
+| `running_instances` | Actual count returned by the selected controller |
+| `unmet_instances` | Buffered required count minus actual, floored at 0 |
+| `unmet_player_capacity` | Customer players beyond modeled actual capacity |
+| `capacity_limit_shortfall_instances` | Buffered requirement beyond configured maximum |
+| `input_available` | Latest query succeeded (1) or was unavailable/stale (0) |
+| `predicted_required_instances`, `predicted_desired_instances` | Unexpired shadow forecast requirements before/after bounds |
+
+Capacity-demand gauges have their own `capacity_demand_timestamp_seconds` and
+update after a valid query, even if infrastructure operations subsequently fail.
+Successful decision/action/event metrics keep their existing success-only
+semantics. Refreshing actual running counts also refreshes derived shortfalls.
+A missing buffered VM does not necessarily mean nominal players exceed physical
+capacity: at 700 players, 7 hypothetical 100-player VMs cover nominal demand,
+but the 10% buffer requires 8. Capacity settings/source identity are exported as
+`capacity_*`, `maximum_instances`, and `max_scaling_change` gauges. The existing
+Ruby Acorn Scaling dashboard displays these separate quantities.
 
 ### Historical player data
 
@@ -380,6 +472,11 @@ with torch.no_grad():
 
 ### Simulate predictive scaling
 
+Current replays use the same `ScalingLimits` as the active engine: maximum 7,
+maximum change 2 per cycle (configurable with `--max-instances` and
+`--max-scaling-change`). The fixed baseline defaults to 7 and is bounded too.
+The 16-instance comparison below records the earlier, unbounded experiment.
+
 `scripts/simulate_scaling.py` uses the original pretrained TimesFM 2.5 checkpoint
 to compare capacity decisions with a reactive rule and a fixed fleet. The LoRA
 adapter is not used. This is an offline replay with no infrastructure actions.
@@ -397,7 +494,7 @@ downloads. Use a new output directory for each run. Demo defaults are:
 | Capacity per instance | 100 players | `--players-per-instance 100` |
 | Spare capacity | 10% | `--headroom-fraction 0.10` |
 | Minimum fleet | 1 instance | `--minimum-instances 1` |
-| Fixed comparison fleet | 16 instances | `--fixed-instances 16` |
+| Fixed comparison fleet | 7 instances | `--fixed-instances 7` |
 | Price including startup | 0.10 EUR/instance-hour | `--vm-cost-per-hour 0.10` |
 | Historical context | 192 hours | `--window-size 192` |
 | Evaluated period | Final 72 hours | `--evaluation-hours 72` |
@@ -415,8 +512,8 @@ desired_instances = max(minimum, ceil(customer_players * (1 + headroom) / player
 `fixed_capacity` requests the configured fixed fleet. Existing `threshold` and
 `aggressive` behavior is unchanged; they are not the reactive baseline here,
 because their prototype thresholds do not implement these capacity assumptions.
-The new capacity strategies are available to the offline simulator and are not
-registered as live CLI strategies.
+The reactive capacity strategy is now the live default. The predictive strategy
+remains limited to offline replay and read-only shadow mode.
 
 The replay accepts consecutive hourly observations only. At hour t, it observes
 actual demand, scores the already-ready fleet, and requests the fleet for t+1.
@@ -444,8 +541,8 @@ Cost savings versus the fixed fleet alone do not establish a better policy:
 compare shortfalls and scaling activity as well. No live cost metrics or their
 meaning are changed by the simulator's cumulative experiment costs.
 
-The first replay, `model-runs/scaling-simulation-730-2026-10-20/`, used these
-defaults on the final 72 hourly observations:
+The earlier replay, `model-runs/scaling-simulation-730-2026-10-20/`, predates
+fleet/rate limits and used a fixed fleet of 16 on the final 72 observations:
 
 | Policy | Simulated cost (EUR) | Hours below modeled capacity | Scaling events |
 | --- | ---: | ---: | ---: |
@@ -458,6 +555,15 @@ shortfalls versus four sampled hours for the reactive rule. It cost EUR 42.20
 less than the selected fixed fleet, with more scaling activity. There were no
 forecast fallbacks. This demonstrates the simulation's tradeoff under the stated
 assumptions, not validated production savings or capacity guarantees.
+
+
+The current bounded replay is stored in
+`model-runs/scaling-capacity-limited-730-2026-10-20/`. With maximum 7 and at most
+2 changes per hourly cycle, all three policies had 43 modeled under-capacity
+hours out of 72. Costs were EUR 48.30 reactive, EUR 48.70 TimesFM and EUR 50.40
+fixed at 7. This shows the configured cap is too small for much of that
+historical workload under the chosen demo assumptions. Forecast accuracy cannot
+remove a capacity deficit imposed by the maximum.
 
 ### Run shadow mode
 
@@ -498,7 +604,8 @@ new consecutive context and records reactive proposals during warmup/failure.
 Each successful forecast targets the next UTC hour, typically slightly less
 than 60 minutes after issue time because sampling/inference takes time.
 
-Ignored `data/shadow/730/` contains:
+New runs use ignored `data/shadow-capacity/730/` (older logs remain in
+`data/shadow/730/`). This directory contains:
 
 - `hourly_observations.csv`: accepted live hourly samples, separate from seeds.
 - `events.jsonl`: sessions, decisions, forecast outcomes, missed targets and
@@ -513,8 +620,8 @@ absolute/squared forecast error and the hypothetical capacity shortfall of its
 proposal. A missed hour is logged as unavailable and is never scored against a
 later measurement. Query failures do not create zero-demand samples. Missing
 live decision metrics do not prevent forecasting. Legacy unlabeled live metrics
-are marked `appid_verified=false`, since their game identity cannot be proved
-from the metrics alone. Check the recorded decision timestamp/freshness; live
+are verified using the new `capacity_source_info` gauge when present; older
+unlabeled snapshots without that gauge remain `appid_verified=false`. Check the recorded decision timestamp/freshness; live
 rule counts and customer-share capacity proposals use different policies.
 
 Restarts recover accepted samples and the pending forecast without issuing a
@@ -540,10 +647,10 @@ games in the same loop. `games.example.toml` contains:
 
 ```toml
 [games."730"]
-strategy = "aggressive"
+strategy = "reactive_capacity"
 
 [games."570"]
-strategy = "threshold"
+strategy = "reactive_capacity"
 ```
 
 Run one evaluation for every configured game:
@@ -577,8 +684,8 @@ default Compose exporter still provides only `STEAM_APPID` (default `730`);
 `570` requires a separate exporter and Prometheus scrape target. Adding a game
 to this file does not add a player-count source. Without a games file, the
 existing single-game CLI and unlabeled `running_instances` metric still work.
-Available strategy names are `threshold` and `aggressive`; `cost_saving` is not
-implemented.
+Available live names are `reactive_capacity` (default), `threshold` and
+`aggressive` (legacy). `cost_saving` and predictive live control are not implemented.
 
 ### Decision metrics
 
@@ -701,8 +808,12 @@ the game selection and time range.
 
 `Below strategy target` checks each game's running count against its desired
 count; one under-target game makes the indicator red even if another has spare
-VMs. The fake controller applies scaling immediately, so it normally shows
-`At or above target`. It does not measure actual player capacity or an SLA.
+VMs. The fake controller applies each limited action immediately, but the fleet
+can remain below target for several cycles. The indicator compares the bounded
+target, so it can be green while uncapped demand still exceeds the configured
+maximum. Check `required_instances`, `unmet_instances` and
+`unmet_player_capacity` in the Scaling dashboard; none of these are measured
+server capacity or an SLA.
 Missing desired-instance metrics produce no comparison, not a healthy zero;
 query failures can leave an older decision visible, so check decision age.
 Costs are hourly estimates, not accumulated costs or invoices; negative savings
@@ -724,12 +835,13 @@ on PATH, and the project installed in the virtual environment:
 .\.venv\Scripts\python.exe scripts/demo_docker_scaling.py --strategy aggressive --report demo-results/aggressive.json
 ```
 
-The reproducible scenario uses synthetic counts `50, 150, 700000, 50`:
+The reproducible scenario now repeats high/low demand to show gradual changes:
+`50, 150, 700000, 700000, 50, 50`. Each cycle changes at most 2 instances:
 
 | Strategy | Observed running containers |
 | --- | --- |
-| `threshold` | 0 -> 1 -> 2 -> 4 -> 1 |
-| `aggressive` | 0 -> 2 -> 3 -> 5 -> 2 |
+| `threshold` | 0 -> 1 -> 2 -> 4 -> 4 -> 2 -> 1 |
+| `aggressive` | 0 -> 2 -> 3 -> 5 -> 5 -> 3 -> 2 |
 
 The optional Prometheus URL adds a final evaluation using the live `appid=730`
 sample. Counts come from `docker ps`, and the JSON report records real container

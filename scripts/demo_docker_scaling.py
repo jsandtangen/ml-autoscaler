@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from scaler.data.client import GameDataClient, GameDataClientError
 from scaler.engine.decision_engine import DecisionEngine
+from scaler.engine.scaling_limits import ScalingLimits
 from scaler.infrastructure.docker_controller import DockerController
 from scaler.infrastructure.vm_controller import ControllerError
 from scaler.strategies.registry import STRATEGIES, create_strategy
@@ -21,7 +22,7 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     namespace = "demo-" + uuid4().hex[:12]
     controller = DockerController(namespace=namespace, game="730")
-    engine = DecisionEngine(create_strategy(args.strategy), controller)
+    engine = DecisionEngine(create_strategy(args.strategy), controller, ScalingLimits(maximum_instances=5))
     report = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "resource_type": "local Docker containers, not full virtual machines",
@@ -31,7 +32,7 @@ def main(argv=None):
     }
     exit_code = 0
     try:
-        for players in [50, 150, 700_000, 50]:
+        for players in [50, 150, 700_000, 700_000, 50, 50]:
             record_step(report, engine, controller, players, "synthetic")
         if args.prometheus_url:
             players = GameDataClient(args.prometheus_url).get_player_count({"appid": "730"})
@@ -64,11 +65,14 @@ def record_step(report, engine, controller, players, source):
     desired = engine.strategy.desired_instances(players)
     running = engine.apply_desired_instances(desired)
     containers = controller.container_ids()
-    if running != desired or len(containers) != desired:
-        raise ControllerError(f"Expected {desired} live containers, got {len(containers)}")
+    target = engine.last_plan.cycle_target_instances
+    if running != target or len(containers) != target:
+        raise ControllerError(f"Expected cycle target {target} live containers, got {len(containers)}")
     step = {
         "source": source, "player_count": players,
         "previous_instances": previous, "desired_instances": desired,
+        "bounded_desired_instances": engine.last_plan.desired_instances,
+        "cycle_target_instances": target,
         "running_instances": running, "container_ids": containers,
     }
     report["steps"].append(step)

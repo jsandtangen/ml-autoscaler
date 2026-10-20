@@ -162,6 +162,14 @@ def test_ambiguous_reference_cannot_be_silently_matched():
         ShadowPrometheusClient("http://local",session=FakeSession(live_metrics()*2)).live_decision("730",7210)
 
 
+def test_legacy_reference_identity_can_be_verified_using_source_info():
+    source={"metric":{"__name__":"capacity_source_info","steam_appid":"730"},"value":[7210,"1"]}
+    result=ShadowPrometheusClient("http://local",session=FakeSession(live_metrics()+[source])).live_decision("730",7210)
+    assert result["appid_verified"] is True
+    with pytest.raises(PrometheusResponseError):
+        ShadowPrometheusClient("http://local",session=FakeSession(live_metrics()+[source])).live_decision("570",7210)
+
+
 class Client:
     def __init__(self, timestamp=7205, fail=False):
         self.timestamp,self.fail=timestamp,fail

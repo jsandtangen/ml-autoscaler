@@ -1,5 +1,5 @@
 [games."730"]
-strategy = "aggressive"
+strategy = "reactive_capacity"
 
 [games."570"]
-strategy = "threshold"
+strategy = "reactive_capacity"

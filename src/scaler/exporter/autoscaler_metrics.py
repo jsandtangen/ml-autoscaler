@@ -3,11 +3,14 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
+import math
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 from scaler.cost import CostModel
+from scaler.strategies.capacity import CapacityPolicy
+from scaler.engine.scaling_limits import ScalingLimits
 
 logger = logging.getLogger("ruby_acorn.autoscaler_metrics")
 
@@ -33,6 +36,10 @@ class GameMetrics:
     decision: DecisionSnapshot | None = None
     scale_up_events: int = 0
     scale_down_events: int = 0
+    capacity: dict | None = None
+    prediction: dict | None = None
+    input_available: bool | None = None
+    source_appid: str | None = None
 
 
 class AutoscalerMetrics:
@@ -55,6 +62,60 @@ class AutoscalerMetrics:
             state = self._games.get(appid, GameMetrics())
             self._games[appid] = replace(state, strategy=name)
 
+    def set_input_available(self, available: bool, appid=None):
+        with self._lock:
+            state = self._games.get(appid, GameMetrics())
+            self._games[appid] = replace(state, input_available=available)
+
+    def set_source_appid(self, source_appid, appid=None):
+        with self._lock:
+            state = self._games.get(appid, GameMetrics())
+            self._games[appid] = replace(state, source_appid=source_appid)
+
+    def record_capacity_demand(self, players, policy, limits, desired, current, appid=None):
+        plan = limits.plan(desired, current)
+        capacity = {"global_player_count": players,
+            "customer_player_count": policy.customer_players(players),
+            "required_instances": policy.required_instances(players),
+            "cycle_target_instances": plan.cycle_target_instances,
+            "maximum_instances": limits.maximum_instances,
+            "max_scaling_change": limits.max_change,
+            "players_per_instance": policy.players_per_instance,
+            "capacity_player_share": policy.player_share,
+            "capacity_players_per_instance": policy.players_per_instance,
+            "capacity_headroom_fraction": policy.headroom_fraction,
+            "capacity_minimum_instances": policy.minimum_instances,
+            "capacity_demand_timestamp_seconds": time.time()}
+        with self._lock:
+            state = self._games.get(appid, GameMetrics())
+            self._games[appid] = replace(state, capacity=capacity, input_available=True)
+
+    def clear_prediction(self, appid=None):
+        with self._lock:
+            state = self._games.get(appid, GameMetrics())
+            self._games[appid] = replace(state, prediction=None)
+
+    def record_shadow_prediction(self, decision, policy, limits, appid=None, source_appid=None):
+        now = time.time()
+        if (decision["status"] != "forecast" or decision["appid"] != source_appid
+                or decision["policy"] != asdict(policy)
+                or decision["model_id"] != "google/timesfm-2.5-200m-pytorch"):
+            return
+        issued, target, count = (float(decision[key]) for key in
+                                ("issued_at", "target_timestamp", "predicted_global_players"))
+        if (not all(math.isfinite(v) for v in (issued,target,count)) or count < 0
+                or issued > now+5 or not now < target <= issued+3600):
+            return
+        required = policy.required_instances(count)
+        prediction = {"predicted_player_count": count,
+            "predicted_customer_player_count": policy.customer_players(count),
+            "predicted_required_instances": required,
+            "predicted_desired_instances": limits.plan(required, 0).desired_instances,
+            "prediction_target_timestamp_seconds": target}
+        with self._lock:
+            state = self._games.get(appid, GameMetrics())
+            self._games[appid] = replace(state, prediction=prediction)
+
     def record_decision(
         self,
         player_count: int,
@@ -64,18 +125,19 @@ class AutoscalerMetrics:
         strategy: str,
         appid: str | None = None,
     ) -> None:
-        action = (desired_instances > current_instances) - (
-            desired_instances < current_instances
+        action = (running_instances > current_instances) - (
+            running_instances < current_instances
         )
         decision = DecisionSnapshot(player_count, desired_instances, action, time.time())
         with self._lock:
             previous = self._games.get(appid, GameMetrics())
-            self._games[appid] = GameMetrics(
+            self._games[appid] = replace(previous,
                 running_instances=running_instances,
                 strategy=strategy,
                 decision=decision,
                 scale_up_events=previous.scale_up_events + (action > 0),
                 scale_down_events=previous.scale_down_events + (action < 0),
+                input_available=True,
             )
 
     def render(self) -> bytes:
@@ -98,9 +160,48 @@ class AutoscalerMetrics:
             "fixed_baseline_cost": "Estimated fixed VM baseline cost in EUR per hour per game.",
             "savings": "Estimated savings in EUR per hour: fixed baseline minus dynamic cost.",
         }
+        descriptions.update({name: description for name,description in (
+            ("global_player_count", "Global players from the latest valid capacity input."),
+            ("capacity_source_info", "Configured Steam appid for this autoscaler source."),
+            ("capacity_player_share", "Prototype fraction of global players assigned to the customer."),
+            ("capacity_players_per_instance", "Prototype concurrent customer player capacity per VM."),
+            ("capacity_headroom_fraction", "Configured prototype safety buffer fraction."),
+            ("capacity_minimum_instances", "Configured minimum target fleet."),
+            ("customer_player_count", "Simulated customer players under configured share."),
+            ("required_instances", "Uncapped buffered VM demand before minimum/maximum bounds."),
+            ("cycle_target_instances", "VM target after fleet bounds and per-cycle rate limit."),
+            ("maximum_instances", "Configured effective maximum instances per game."),
+            ("max_scaling_change", "Maximum instance change per decision cycle."),
+            ("unmet_instances", "Uncapped buffered requirement minus actual running instances, floored at zero."),
+            ("unmet_player_capacity", "Simulated customer players beyond actual running capacity."),
+            ("capacity_limit_shortfall_instances", "Uncapped VM requirement above configured maximum."),
+            ("capacity_demand_timestamp_seconds", "Timestamp of latest valid capacity input, including controller failures."),
+            ("input_available", "One if latest query succeeded, zero on unavailable or stale input."),
+            ("predicted_player_count", "Unexpired original TimesFM global-player forecast from shadow mode."),
+            ("predicted_customer_player_count", "Simulated customer players in shadow forecast."),
+            ("predicted_required_instances", "Uncapped buffered instances for shadow forecast."),
+            ("predicted_desired_instances", "Shadow forecast VM target within shared fleet bounds."),
+            ("prediction_target_timestamp_seconds", "Timestamp for the shadow forecast target."),
+        )})
         samples: dict[str, list[str]] = {name: [] for name in descriptions}
         for appid, state in sorted(games.items(), key=lambda item: item[0] or ""):
             labels = self._labels(appid)
+            if state.source_appid is not None:
+                source_labels = self._labels(appid, steam_appid=state.source_appid)
+                samples["capacity_source_info"].append(f"capacity_source_info{source_labels} 1\n")
+            if state.input_available is not None:
+                samples["input_available"].append(f"input_available{labels} {int(state.input_available)}\n")
+            if state.capacity is not None:
+                values = dict(state.capacity)
+                per_instance = values.pop("players_per_instance")
+                values["unmet_instances"] = max(0, values["required_instances"]-state.running_instances)
+                values["unmet_player_capacity"] = max(0, values["customer_player_count"]-per_instance*state.running_instances)
+                values["capacity_limit_shortfall_instances"] = max(0, values["required_instances"]-values["maximum_instances"])
+                for name,value in values.items():
+                    samples[name].append(f"{name}{labels} {value:.12g}\n")
+            if state.prediction is not None and state.prediction["prediction_target_timestamp_seconds"] > time.time():
+                for name,value in state.prediction.items():
+                    samples[name].append(f"{name}{labels} {value:.12g}\n")
             cost = cost_model.estimate_hourly(state.running_instances)
             for name, value in (
                 ("dynamic_cost", cost.dynamic_cost),

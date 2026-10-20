@@ -15,6 +15,7 @@ from scaler.simulation import FixedCapacityStrategy, simulate_scaling, validate_
 from scaler.strategies.capacity import CapacityPolicy, ReactiveCapacityStrategy
 from scaler.strategies.predictive import PredictiveCapacityStrategy
 from scaler.timesfm_forecasting import MODEL_ID, TimesFMForecaster, TimesFMError
+from scaler.engine.scaling_limits import ScalingLimits
 
 
 def parse_args(argv=None):
@@ -26,7 +27,9 @@ def parse_args(argv=None):
     parser.add_argument("--players-per-instance", type=int, default=100)
     parser.add_argument("--headroom-fraction", type=float, default=0.10)
     parser.add_argument("--minimum-instances", type=int, default=1)
-    parser.add_argument("--fixed-instances", type=int, default=16)
+    parser.add_argument("--fixed-instances", type=int, default=7)
+    parser.add_argument("--max-instances", type=int, default=7)
+    parser.add_argument("--max-scaling-change", type=int, default=2)
     parser.add_argument("--vm-cost-per-hour", type=float, default=0.10)
     parser.add_argument("--window-size", type=int, default=192)
     parser.add_argument("--evaluation-hours", type=int, default=72)
@@ -38,6 +41,7 @@ def parse_args(argv=None):
 def run(args, forecaster=None):
     policy = CapacityPolicy(args.player_share, args.players_per_instance,
                             args.headroom_fraction, args.minimum_instances)
+    limits = ScalingLimits(args.minimum_instances, args.max_instances, args.max_scaling_change)
     games = load_player_history(args.history_path)
     if args.appid not in games:
         raise ValueError(f"No history for appid {args.appid!r}")
@@ -56,7 +60,7 @@ def run(args, forecaster=None):
         "timesfm_capacity": PredictiveCapacityStrategy(policy, forecaster, args.window_size),
         "fixed_capacity": FixedCapacityStrategy(args.fixed_instances),
     }
-    results, traces = simulate_scaling(observations, strategies, policy, start, args.vm_cost_per_hour)
+    results, traces = simulate_scaling(observations, strategies, policy, start, args.vm_cost_per_hour, limits)
     fixed_cost = results["fixed_capacity"]["total_cost_eur"]
     for result in results.values():
         result["cost_savings_vs_fixed_eur"] = fixed_cost-result["total_cost_eur"]
@@ -68,6 +72,7 @@ def run(args, forecaster=None):
         "model_id": MODEL_ID, "model_mode": "pretrained_zero_shot",
         "assumptions": {
             **asdict(policy), "fixed_instances": args.fixed_instances,
+            "scaling_limits": asdict(limits),
             "vm_cost_per_hour": args.vm_cost_per_hour,
             "forecast_horizon_hours": 1, "startup_hours": 1, "reconciliation_hours": 1,
             "window_observations": args.window_size,

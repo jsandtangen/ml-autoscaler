@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import math
 
 import requests
 
@@ -32,17 +33,23 @@ class GameDataClient:
         timeout: int | float = 5,
         session=None,
         metric_name: str = "steam_player_count",
+        max_sample_age_seconds: int | None = None,
     ):
         self.prometheus_url = prometheus_url.rstrip("/")
         self.timeout = timeout
         self.session = session or requests.Session()
         self.metric_name = metric_name
+        if max_sample_age_seconds is not None and (type(max_sample_age_seconds) is not int or max_sample_age_seconds < 1):
+            raise ValueError("Maximum sample age must be a positive integer")
+        self.max_sample_age_seconds = max_sample_age_seconds
 
     def get_player_counts(
         self,
         label_filters: dict[str, str] | None = None,
     ) -> list[PlayerCountSample]:
         query = self._build_query(label_filters)
+        if self.max_sample_age_seconds is not None:
+            query = f"last_over_time({query}[{self.max_sample_age_seconds}s])"
         payload = self._query_prometheus(query)
         results = self._extract_results(payload)
 
@@ -126,7 +133,10 @@ class GameDataClient:
             raise PrometheusResponseError("Prometheus result metric was not a dict")
 
         try:
-            player_count = int(float(raw_value))
+            numeric = float(raw_value)
+            if not math.isfinite(numeric) or numeric < 0:
+                raise ValueError("Invalid player count")
+            player_count = int(numeric)
         except (TypeError, ValueError) as error:
             raise PrometheusResponseError(
                 f"Prometheus player count value was not numeric: {raw_value}"

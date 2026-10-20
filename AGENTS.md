@@ -81,6 +81,7 @@ work below is guidance, not a requirement to expand every task's scope.
 | `src/scaler/strategies/base.py` | Abstract `ScalingStrategy` contract |
 | `src/scaler/strategies/threshold.py` | Current threshold-based instance calculation |
 | `src/scaler/strategies/aggressive.py` | Threshold baseline plus one buffer instance |
+| `src/scaler/engine/scaling_limits.py` | Shared min/max/rate-limit planning, no controller access |
 | `src/scaler/engine/decision_engine.py` | Compare desired/current counts and apply the difference |
 | `src/scaler/infrastructure/vm_controller.py` | In-memory `FakeVMController` |
 | `src/scaler/infrastructure/docker_controller.py` | Label-scoped local Docker resource controller |
@@ -144,9 +145,9 @@ work below is guidance, not a requirement to expand every task's scope.
   hash, versions, boundaries, epoch/held-out scores). Unit tests cover splits,
   leakage boundaries, gaps and failure handling without importing ML libraries.
 - Strategies are selected by `--strategy` or `AUTOSCALER_STRATEGY`, defaulting
-  to `threshold`. `src/scaler/strategies/registry.py` maps names to implementations;
+  to `reactive_capacity`. `src/scaler/strategies/registry.py` maps names to implementations;
   unknown names fail at startup. Add algorithms there without changing the loop.
-- Offline capacity policies are not registered in the live strategy registry.
+- `reactive_capacity` is registered and is the active default. Predictive capacity remains shadow-only.
   `CapacityPolicy` uses customer share of global counts and desired fleet =
   max(minimum, ceil(customer demand * (1+headroom) / players per instance)).
   `ReactiveCapacityStrategy` uses current counts; `PredictiveCapacityStrategy`
@@ -156,7 +157,7 @@ work below is guidance, not a requirement to expand every task's scope.
   30-second scrapes. Legacy threshold/aggressive strategies are unchanged.
 - `scripts/simulate_scaling.py` replays hourly history with the original native
   TimesFM 2.5 checkpoint, never LoRA. Demo assumptions: share 0.001, 100 players
-  per instance, 10% headroom, minimum 1, fixed fleet 16, EUR 0.10 per instance-
+  per instance, 10% headroom, minimum 1, fixed fleet 7, maximum 7, max change 2, EUR 0.10 per instance-
   hour, context 192, final 72 hours scored. All are CLI-configurable except the
   one-hour forecast/startup/reconciliation period. Require consecutive hourly
   observations; decisions at t affect ready fleet at t+1. Startup instances are
@@ -178,11 +179,12 @@ work below is guidance, not a requirement to expand every task's scope.
   --seed-history-path primes past inputs without training. On gaps, warm up
   again; on model failure, log a reactive capacity proposal with fallback status.
   Preserve live rule control/metrics unchanged. Capture actual live rule metrics
-  when available; legacy unlabeled snapshots have appid_verified=false.
+  when available; capacity_source_info verifies legacy source identity when present.
+  Unlabeled snapshots without that info have appid_verified=false.
   Log outcome only at the exact target hour; missed hours are not scored against
   later demand. Hypothetical shortfall uses demo capacity, not real SLA data.
   Persist hourly_observations.csv, events.jsonl, latest_decision.json, status.json,
-  process.json and metadata.json under ignored data/shadow/APPID. Recover samples
+  process.json and metadata.json under ignored data/shadow-capacity/APPID (older pre-limit logs remain in data/shadow/APPID). Recover samples
   and pending forecast on restart; avoid duplicate hourly proposals. One process
   owns each directory via OS lock; changed config requires another directory.
   No Compose changes/ML runtime installation are required for the existing host
@@ -191,7 +193,7 @@ work below is guidance, not a requirement to expand every task's scope.
   via `apply_desired_instances(desired)`. `evaluate(player_count)` remains available.
 - `aggressive` selects `AggressiveStrategy`: the threshold baseline plus one
   buffer instance (2 at zero players, 5 at 600 or above). It prioritizes spare
-  capacity over cost, with no delay or hysteresis. `threshold` remains the default.
+  capacity over cost, with no delay or hysteresis. `threshold` remains an explicit legacy option, not the default.
 - `--games-config` or `AUTOSCALER_GAMES_CONFIG` loads a TOML file with
   `[games."APPID"]` tables containing `strategy`. Each game gets a separate
   strategy, decision engine, and selected controller. Its appid and strategy override
@@ -204,12 +206,13 @@ work below is guidance, not a requirement to expand every task's scope.
 - Compose optionally loads the mounted `/app/games.example.toml` via
   `AUTOSCALER_GAMES_CONFIG`. The default exporter still serves only `STEAM_APPID`;
   additional games require their own exporter/scrape source. The example uses
-  `730: aggressive` and `570: threshold`; no `cost_saving` strategy exists.
+  `730: reactive_capacity` and `570: reactive_capacity`; no `cost_saving` strategy exists.
 - `ThresholdStrategy` returns 1 below 100 players, 2 from 100 to 299, 3 from
   300 to 599, and 4 at 600 or above. These are prototype values, not validated
   production capacity limits.
 - `DecisionEngine.evaluate(player_count)` reads the current count, scales up or
-  down by the difference, and returns the resulting running count. Equal counts
+  down toward a bounded target, at most 2 instances per cycle by default,
+  and returns the actual resulting count. Equal counts
   require no scaling action.
 - Controllers expose `running_instances()`, `scale_up(count)`, and
   `scale_down(count)`. The fake starts at zero and clamps scale-down at zero.
@@ -289,6 +292,51 @@ Keep metrics retrieval, scaling policy, orchestration, and infrastructure contro
 separate. New strategies should implement the existing strategy contract;
 provider integrations should fit the controller interface. Do not silently
 change thresholds, series aggregation, or error behavior.
+
+## Current capacity behavior (2026-10-20)
+
+- Reuse `CapacityPolicy` for global-to-customer conversion: share 0.001,
+  100 players/VM, headroom 0.10. `required_instances()` preserves the raw ceil
+  before minimum/maximum; desired minimum is 1. 535000 -> 6; 700000 -> 8.
+- `ScalingLimits` bounds desired fleet, then limits each change to 2 per cycle.
+  Fake maximum defaults to 7; Docker uses the lower of this and its existing
+  configured namespace limit (default 5). No new controller/provider is added.
+  Rediscovered fleets above a new maximum shrink gradually, respecting the rate
+  limit. No cooldown/hysteresis exists; do not claim one was added.
+- Main CLI/env: player-share, players-per-instance, headroom-fraction,
+  minimum-instances, max-instances, max-scaling-change, max-sample-age-seconds;
+  environment names are AUTOSCALER_PLAYER_SHARE, AUTOSCALER_PLAYERS_PER_INSTANCE,
+  AUTOSCALER_HEADROOM_FRACTION, AUTOSCALER_MINIMUM_INSTANCES,
+  AUTOSCALER_MAX_INSTANCES, AUTOSCALER_MAX_SCALING_CHANGE,
+  AUTOSCALER_MAX_SAMPLE_AGE_SECONDS. Per-game strategy selection is preserved.
+  Threshold/aggressive classes remain legacy opt-ins for older demonstrations.
+- Main sets GameDataClient's freshness selector to last_over_time(metric[90s]);
+  standalone clients default to their old instant-query behavior unless given
+  max_sample_age_seconds. Failed/stale/malformed input skips scaling and records
+  input_available=0; zero is valid demand and targets the configured minimum.
+- Capacity demand metrics update on valid input even if control later fails:
+  global_player_count, customer_player_count, required_instances (uncapped),
+  cycle_target_instances, maximum_instances, max_scaling_change and
+  capacity_demand_timestamp_seconds. Derived unmet_instances and
+  unmet_player_capacity use actual running counts; capacity_limit_shortfall_instances
+  exposes demand beyond the maximum. Successful-decision/event metrics retain
+  success-only semantics. The scaling dashboard now shows the separate values.
+- Shadow mode shares both policy and limits. New default output directory is
+  data/shadow-capacity/APPID; existing pre-limit configurations require a new
+  directory. Logs separate raw shadow_required_instances, bounded target and
+  shadow_cycle_target_instances (only with fresh game-verified live counts).
+  Live source info and capacity settings are read from Prometheus. A fresh
+  configuration mismatch suppresses proposals. No predictive strategy is
+  registered for live control. TimesFM and VM operations remain separate.
+- Main optionally reads latest_decision.json under --shadow-decisions-dir /
+  AUTOSCALER_SHADOW_DECISIONS_DIR, default data/shadow-capacity (Compose:
+  /app/data/shadow-capacity). Only unexpired matching-game/model/policy forecasts
+  expose predicted_* gauges; their requirements are recomputed by CapacityPolicy.
+  These files never influence controller decisions. Predictions expire at their
+  target timestamp and are omitted rather than emitted as zero.
+- The simulation also applies the same fleet and rate limits; fixed baseline
+  now defaults to 7. Archived earlier 16-instance reports predate these limits.
+  Docker demo repeats high/low samples and verifies each limited cycle target.
 
 ## Setup and commands
 
@@ -491,3 +539,33 @@ The Compose data chain has been verified live. Repeat these checks after changes
 
 Real VM control, live ML strategies, cooldown/hysteresis, and production deployment
 remain future design work unless explicitly requested.
+
+
+On 2026-10-20, shared capacity became the active default (`reactive_capacity`).
+Controller interfaces were preserved. The existing Compose autoscaler was
+rebuilt/recreated with fake control only; no managed Docker game containers or
+cloud VMs were started. Live Prometheus verified 578922 global players, 578.922
+simulated customer players, 7 required/desired/running instances, no unmet demand,
+and unexpired predicted_required_instances=7. Source identity, active policy and
+limits (1/7/2) were verified through ShadowPrometheusClient. Existing shadow logs
+were preserved in data/shadow/730; accepted live samples and the still-unexpired
+original forecast were migrated to data/shadow-capacity/730, with a migration
+event/provenance hash and no new forecast issued for that same hour. The old
+observer was stopped after OS identity verification; the new hidden observer
+runs with shared limits. Recheck process/status each session.
+
+The bounded replay under model-runs/scaling-capacity-limited-730-2026-10-20
+used maximum 7 and change 2 per hourly cycle. All three policies had 43/72 hours
+below modeled nominal capacity; costs EUR 48.30 reactive, 48.70 original TimesFM,
+50.40 fixed 7. Do not claim forecasting removes a deficit imposed by the cap.
+Current active source freshness defaults to 90 seconds; tests cover zero,
+missing/stale/invalid data, partial controller failures, budget/rate-limit unmet
+demand, shadow policy mismatch and forecast expiry. Predictive resource control
+is still unavailable; enabling it needs explicit configuration and further
+shadow evaluation and provider/startup/capacity validation.
+
+Final verification for the shared-capacity change: 276 pytest tests passed;
+Grafana dashboard JSON (27 unique panel IDs), diff whitespace and Compose
+configuration were checked. Live checks use fake control only; Docker-controller
+unit tests use the injected fake CLI runner. No real VM/container scaling demo
+was executed for this change.
