@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import copy
 import csv
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -29,6 +30,8 @@ def parse_args(argv=None):
     parser.add_argument("--minimum-instances", type=int, default=1)
     parser.add_argument("--fixed-instances", type=int, default=7)
     parser.add_argument("--max-instances", type=int, default=7)
+    parser.add_argument("--compare-max-instances", type=int, nargs="+",
+                        help="Replay identical history/forecasts at each cap; fixed allocation equals each cap.")
     parser.add_argument("--max-scaling-change", type=int, default=2)
     parser.add_argument("--vm-cost-per-hour", type=float, default=0.10)
     parser.add_argument("--window-size", type=int, default=192)
@@ -107,15 +110,57 @@ def run(args, forecaster=None):
     return report
 
 
+class CachedForecaster:
+    """Reuse exactly the same past-only forecast across capacity scenarios."""
+
+    def __init__(self, forecaster):
+        self.forecaster = forecaster
+        self.predictions = {}
+
+    def predict(self, counts):
+        key = tuple(counts)
+        if key not in self.predictions:
+            self.predictions[key] = self.forecaster.predict(counts)
+        return self.predictions[key]
+
+
+def run_comparison(args, forecaster=None):
+    caps = args.compare_max_instances
+    if not caps or len(set(caps)) != len(caps):
+        raise ValueError("Comparison needs distinct capacity limits")
+    for cap in caps:
+        ScalingLimits(args.minimum_instances, cap, args.max_scaling_change)
+    if args.output_dir.exists():
+        raise ValueError("Output directory already exists; choose a new directory")
+    cached = CachedForecaster(forecaster if forecaster is not None else TimesFMForecaster(
+        args.window_size, 1, args.model_cache_dir, local_files_only=not args.allow_model_download))
+    scenarios = {}
+    for cap in caps:
+        scenario_args = copy(args)
+        scenario_args.max_instances = scenario_args.fixed_instances = cap
+        scenario_args.output_dir = args.output_dir / f"max-{cap}"
+        scenarios[str(cap)] = run(scenario_args, cached)
+        if scenarios[str(cap)]["results"]["timesfm_capacity"]["forecast_fallbacks"]:
+            raise TimesFMError("Comparison requires successful forecasts in every evaluated scenario")
+    # Publish the summary only after every scenario completed successfully.
+    report = {"mode": "offline_limit_comparison", "appid": args.appid,
+              "created_at_utc": datetime.now(timezone.utc).isoformat(),
+              "scenarios": scenarios}
+    (args.output_dir / "comparison.json").write_text(
+        json.dumps(report, indent=2, allow_nan=False)+"\n", encoding="utf-8")
+    return report
+
+
 def main(argv=None):
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = parse_args(argv)
     try:
-        report = run(args)
+        report = run_comparison(args) if args.compare_max_instances else run(args)
     except (OSError, ValueError, TimesFMError) as error:
         logging.error("Scaling simulation failed: %s", error)
         return 1
-    print(json.dumps(report["results"], indent=2))
+    print(json.dumps({cap: scenario["results"] for cap, scenario in report["scenarios"].items()}
+                     if "scenarios" in report else report["results"], indent=2))
     return 0
 
 

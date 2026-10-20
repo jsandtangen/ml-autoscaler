@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from scaler.cost import CostModel
 from scaler.strategies.capacity import CapacityPolicy
 from scaler.engine.scaling_limits import ScalingLimits
+from scaler.exporter.simulation_metrics import render_simulation_metrics
 
 logger = logging.getLogger("ruby_acorn.autoscaler_metrics")
 
@@ -40,6 +41,7 @@ class GameMetrics:
     prediction: dict | None = None
     input_available: bool | None = None
     source_appid: str | None = None
+    controller: tuple[str, str] | None = None
 
 
 class AutoscalerMetrics:
@@ -47,6 +49,16 @@ class AutoscalerMetrics:
         self._lock = threading.Lock()
         self._games: dict[str | None, GameMetrics] = {None: GameMetrics()}
         self._cost_model = CostModel()
+        self._simulation_report_path = None
+
+    def set_simulation_report(self, path):
+        self._simulation_report_path = path
+
+    def set_controller(self, backend, appid=None):
+        resource = {"fake": "simulated_instances", "docker": "local_containers"}[backend]
+        with self._lock:
+            state = self._games.get(appid, GameMetrics())
+            self._games[appid] = replace(state, controller=(backend, resource))
 
     def set_cost_model(self, model: CostModel) -> None:
         with self._lock:
@@ -153,6 +165,7 @@ class AutoscalerMetrics:
             "desired_instances": "Desired instances from the last successful decision.",
             "scaling_action": "Last successful decision: -1 down, 0 unchanged, 1 up.",
             "strategy": "Selected scaling strategy identified by the name label.",
+            "controller_info": "Explicit controller backend and resource type; Docker resources are containers, not VMs.",
             "last_decision_timestamp_seconds": "Unix timestamp of the last successful decision.",
             "scale_up_events_total": "Total successful scale-up operations since process start.",
             "scale_down_events_total": "Total successful scale-down operations since process start.",
@@ -186,6 +199,10 @@ class AutoscalerMetrics:
         samples: dict[str, list[str]] = {name: [] for name in descriptions}
         for appid, state in sorted(games.items(), key=lambda item: item[0] or ""):
             labels = self._labels(appid)
+            if state.controller is not None:
+                backend, resource = state.controller
+                tag = self._labels(appid, backend=backend, resource_type=resource)
+                samples["controller_info"].append(f"controller_info{tag} 1\n")
             if state.source_appid is not None:
                 source_labels = self._labels(appid, steam_appid=state.source_appid)
                 samples["capacity_source_info"].append(f"capacity_source_info{source_labels} 1\n")
@@ -232,12 +249,15 @@ class AutoscalerMetrics:
                 for name, value in values.items():
                     samples[name].append(f"{name}{labels} {value}\n")
 
-        return "".join(
+        body = "".join(
             f"# HELP {name} {description}\n"
             f"# TYPE {name} {'counter' if name.endswith('_total') else 'gauge'}\n"
             + "".join(samples[name])
             for name, description in descriptions.items()
         ).encode("utf-8")
+        if self._simulation_report_path:
+            body += render_simulation_metrics(self._simulation_report_path, self._labels)
+        return body
 
     def _labels(self, appid: str | None, **extra: str) -> str:
         labels = {"appid": appid} if appid is not None else {}

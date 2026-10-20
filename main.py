@@ -60,6 +60,7 @@ class AutoscalerConfig:
     max_scaling_change: int = 2
     max_sample_age_seconds: int = 90
     shadow_decisions_dir: str | None = "data/shadow-capacity"
+    simulation_report_path: str | None = None
 
 
 def parse_label_filter(value: str) -> tuple[str, str]:
@@ -146,6 +147,8 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
     parser.add_argument("--max-scaling-change", type=positive_int, default=os.getenv("AUTOSCALER_MAX_SCALING_CHANGE", "2"))
     parser.add_argument("--max-sample-age-seconds", type=positive_int, default=os.getenv("AUTOSCALER_MAX_SAMPLE_AGE_SECONDS", "90"))
     parser.add_argument("--shadow-decisions-dir", default=os.getenv("AUTOSCALER_SHADOW_DECISIONS_DIR", "data/shadow-capacity"))
+    parser.add_argument("--simulation-report-path", default=os.getenv("AUTOSCALER_SIMULATION_REPORT_PATH"),
+                        help="Read-only offline comparison JSON to expose as separate simulation metrics.")
     parser.add_argument(
         "--controller", choices=["fake", "docker"],
         default=os.getenv("AUTOSCALER_CONTROLLER", "fake"),
@@ -278,6 +281,7 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         player_history_path=args.player_history_path,
         capacity_policy=policy, max_instances=maximum, max_scaling_change=args.max_scaling_change,
         max_sample_age_seconds=args.max_sample_age_seconds, shadow_decisions_dir=args.shadow_decisions_dir,
+        simulation_report_path=args.simulation_report_path,
     )
 
 
@@ -372,6 +376,7 @@ def run_loop(
         max_sample_age_seconds=config.max_sample_age_seconds,
     )
     metrics = metrics or AutoscalerMetrics()
+    metrics.set_simulation_report(config.simulation_report_path)
     metrics.set_cost_model(CostModel(config.vm_cost_per_hour, config.fixed_baseline_instances))
     history = PlayerHistoryStore(config.player_history_path) if config.player_history_path else None
     if config.games:
@@ -393,6 +398,7 @@ def run_loop(
         ]
 
     for appid, labels, game_engine in evaluations:
+        metrics.set_controller(config.controller_backend, appid)
         metrics.set_source_appid(labels.get("appid"), appid)
         metrics.set_running_instances(game_engine.vm_controller.running_instances(), appid=appid)
         metrics.set_strategy(strategy_name(game_engine.strategy), appid=appid)

@@ -8,6 +8,9 @@ from scaler.engine.decision_engine import DecisionEngine
 from scaler.infrastructure.docker_controller import DockerController
 from scaler.infrastructure.vm_controller import ControllerError
 from scaler.strategies.threshold import ThresholdStrategy
+from scaler.strategies.capacity import ReactiveCapacityStrategy
+from scaler.engine.scaling_limits import ScalingLimits
+from scripts.demo_docker_scaling import record_step
 
 
 class FakeDocker:
@@ -40,6 +43,24 @@ class FakeDocker:
             del self.containers[args[-1]]
             return SimpleNamespace(returncode=0, stdout=args[-1], stderr="")
         raise AssertionError(command)
+
+
+def test_reactive_demo_records_actual_resource_identity_changes_and_preserves_other_namespace():
+    docker = FakeDocker()
+    other = DockerController("other", "730", runner=docker)
+    other.scale_up(1)
+    other_ids = other.container_ids()
+    controller = DockerController("reactive-demo", "730", runner=docker)
+    engine = DecisionEngine(ReactiveCapacityStrategy(), controller, ScalingLimits(maximum_instances=5))
+    report = {"steps": []}
+    for players in [0, 700000, 700000, 0, 0]:
+        record_step(report, engine, controller, players, "synthetic")
+    assert [s["running_instances"] for s in report["steps"]] == [1, 3, 5, 3, 1]
+    assert [len(s["started_container_ids"])+len(s["stopped_container_ids"])
+            for s in report["steps"]] == [1, 2, 2, 2, 2]
+    controller.cleanup()
+    assert controller.container_ids(include_stopped=True) == []
+    assert other.container_ids() == other_ids
 
 
 def test_engine_controls_resources_through_docker_controller():

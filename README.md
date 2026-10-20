@@ -842,6 +842,7 @@ The reproducible scenario now repeats high/low demand to show gradual changes:
 | --- | --- |
 | `threshold` | 0 -> 1 -> 2 -> 4 -> 4 -> 2 -> 1 |
 | `aggressive` | 0 -> 2 -> 3 -> 5 -> 5 -> 3 -> 2 |
+| `reactive_capacity` | 0 -> 1 -> 1 -> 3 -> 5 -> 3 -> 1 |
 
 The optional Prometheus URL adds a final evaluation using the live `appid=730`
 sample. Counts come from `docker ps`, and the JSON report records real container
@@ -891,3 +892,58 @@ After a partial failure, the loop refreshes the actual running count when Docker
 is reachable; if Docker is unavailable, the last known count remains visible.
 `--once` exits with code 1 on controller failure. Unit tests use an injected fake
 CLI runner and never start Docker; the demo commands are explicit live checks.
+
+## Compare fleet limits with original TimesFM
+
+Replay the same hourly history at limits 7, 10 and 15, with at most two changes
+per hourly cycle. Forecasts are computed once per distinct past window and reused
+across scenarios. The fixed allocation equals the scenario limit; each scenario
+also saves its full report and decision trace. Use a new output directory:
+
+```powershell
+.\.venv-ml\Scripts\python.exe scripts/simulate_scaling.py --history-path data/external/steamcharts/730-hourly-after-zero.csv --appid 730 --output-dir model-runs/scaling-limits-730-2026-10-20 --compare-max-instances 7 10 15
+Copy-Item model-runs/scaling-limits-730-2026-10-20/comparison.json data/scaling-comparison.json
+```
+
+This uses the cached original TimesFM checkpoint, without training or live
+predictive control. Install the ML extra first if using a different environment.
+No infrastructure operations occur in the simulation. At EUR 0.10 per billed
+instance-hour, the completed 72-hour replay produced:
+
+| Limit | Reactive EUR / deficit hours | TimesFM EUR / deficit hours | Fixed EUR / deficit hours |
+| --- | --- | --- | --- |
+| 7 | 48.30 / 43 | 48.70 / 43 | 50.40 / 43 |
+| 10 | 61.60 / 28 | 61.80 / 27 | 72.00 / 27 |
+| 15 | 72.20 / 4 | 72.80 / 0 | 108.00 / 0 |
+
+Deficit hours mean modeled customer demand exceeds nominal ready capacity.
+Unserved customer player-hours (demand beyond capacity integrated over time)
+were respectively 14662.423 / 4370.798 / 102.282 for reactive, and
+14662.423 / 4315.516 / 0 for TimesFM. These are exploratory results under demo
+capacity assumptions and one-hour startup, rather than measured game-server
+performance. No forecasting strategy can recover capacity forbidden by the cap.
+
+Compose reads `/app/data/scaling-comparison.json` through the existing data
+mount. A host loop can use `--simulation-report-path data/scaling-comparison.json`
+or `AUTOSCALER_SIMULATION_REPORT_PATH`. The exporter adds separate
+`simulation_cost_eur`, `simulation_hours_below_capacity`,
+`simulation_unserved_player_hours` and `simulation_evaluated_hours` gauges labeled
+by `appid`, `strategy` and `max_instances`. Invalid/incomplete/inconsistent reports
+set `simulation_report_available` to zero and emit no result samples.
+`simulation_report_timestamp_seconds` identifies the completed run; these gauges
+are period totals, while existing live cost gauges remain EUR/hour.
+
+The `Ruby Acorn Scaling` dashboard includes the comparison, report availability,
+creation time and duration. `controller_info` and the controller panel identify
+fake instances versus local containers explicitly. TimesFM remains a separate
+read-only shadow process and cannot start or stop resources.
+
+On 2026-10-20, the local host was Windows 11 Home with Docker Desktop/WSL;
+no usable Hyper-V, VirtualBox, VMware or QEMU management tools were found.
+The user requires independent VMs. Connecting a real VM backend therefore
+awaits local VirtualBox installation and a verified fixed pool of 2–3 Linux VMs.
+The user selected the local Windows PC and requested setup guidance before
+backend implementation; see [the VirtualBox setup guide](docs/local-virtualbox-setup.md).
+The active loop remains fake. The Docker start/stop demo was verified separately
+with real container IDs and cleanup; it does not satisfy the independent-VM test.
+No paid cloud resources have been provisioned.

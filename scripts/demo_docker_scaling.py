@@ -29,6 +29,7 @@ def main(argv=None):
         "namespace": namespace, "strategy": args.strategy,
         "input_source": "synthetic player counts; optional final live Prometheus sample",
         "max_containers": 5, "steps": [], "success": False,
+        "max_scaling_change": engine.limits.max_change,
     }
     exit_code = 0
     try:
@@ -62,18 +63,24 @@ def main(argv=None):
 
 def record_step(report, engine, controller, players, source):
     previous = controller.running_instances()
+    previous_ids = set(controller.container_ids())
     desired = engine.strategy.desired_instances(players)
     running = engine.apply_desired_instances(desired)
     containers = controller.container_ids()
     target = engine.last_plan.cycle_target_instances
     if running != target or len(containers) != target:
         raise ControllerError(f"Expected cycle target {target} live containers, got {len(containers)}")
+    started = sorted(set(containers)-previous_ids)
+    stopped = sorted(previous_ids-set(containers))
+    if len(started)+len(stopped) > engine.limits.max_change:
+        raise ControllerError("Observed resource changes exceed the per-cycle limit")
     step = {
         "source": source, "player_count": players,
         "previous_instances": previous, "desired_instances": desired,
         "bounded_desired_instances": engine.last_plan.desired_instances,
         "cycle_target_instances": target,
         "running_instances": running, "container_ids": containers,
+        "started_container_ids": started, "stopped_container_ids": stopped,
     }
     report["steps"].append(step)
     print(f"source={source} players={players} instances={previous}->{running} ids={containers}")

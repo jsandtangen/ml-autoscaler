@@ -78,6 +78,8 @@ work below is guidance, not a requirement to expand every task's scope.
 | `src/scaler/shadow.py` | Hour-aligned shadow proposals, continuity checks and next-hour outcome scoring |
 | `scripts/shadow_autoscaler.py` | Independent host shadow observer, persistent journals and single-writer lock |
 | `scripts/evaluate_forecasts.py` | Offline baseline comparison from player history, with JSON output |
+| `scripts/simulate_scaling.py` | Hourly capacity replay; optional comparison of fleet limits reusing identical forecasts |
+| `src/scaler/exporter/simulation_metrics.py` | Read-only export of a completed offline limit comparison, separate from live costs |
 | `src/scaler/strategies/base.py` | Abstract `ScalingStrategy` contract |
 | `src/scaler/strategies/threshold.py` | Current threshold-based instance calculation |
 | `src/scaler/strategies/aggressive.py` | Threshold baseline plus one buffer instance |
@@ -569,3 +571,69 @@ Grafana dashboard JSON (27 unique panel IDs), diff whitespace and Compose
 configuration were checked. Live checks use fake control only; Docker-controller
 unit tests use the injected fake CLI runner. No real VM/container scaling demo
 was executed for this change.
+
+On 2026-10-20, the user requested independent real VMs, maximum two changes per
+cycle, comparison of fleet limits 7/10/15, and retained TimesFM shadow mode.
+Local discovery found Windows 11 Home, Docker Desktop with WSL2, and no usable
+Hyper-V module/Get-VM, VM management service, or VirtualBox/VMware/QEMU CLI.
+The user explicitly declined substituting containers for independent VMs and
+will provide the VM host. Ask for hypervisor/host, management connection and
+owned VM IDs or template before implementing provider-specific control. Do not
+claim Docker containers satisfy this request. Active Compose remains fake;
+no new VM backend or paid cloud resources have been enabled.
+
+The existing reactive Docker demo was separately verified with real container
+IDs: 0 -> 1 -> 1 -> 3 -> 5 -> 3 -> 1, at most two identity changes per cycle,
+then cleanup to zero. Evidence is in ignored demo-results/
+reactive-capacity-containers-verified-2026-10-20.json. Cleanup is outside normal
+scaling decisions. It proves container operations only, not independent VM
+startup or game-server readiness.
+
+scripts/simulate_scaling.py --compare-max-instances 7 10 15 reuses cached original
+TimesFM predictions across identical past-only windows, keeps the evaluation
+period/policy/rate limit identical, and uses fixed allocation equal to each cap.
+Outputs are per-cap report.json/decisions.csv and completed comparison.json.
+The 72-hour replay under model-runs/scaling-limits-730-2026-10-20 produced:
+cap 7: reactive EUR48.30/43 deficit hours, TimesFM48.70/43, fixed50.40/43;
+cap 10: reactive61.60/28, TimesFM61.80/27, fixed72.00/27;
+cap 15: reactive72.20/4, TimesFM72.80/0, fixed108.00/0.
+Reactive unserved player-hours: 14662.423 / 4370.798 / 102.282; TimesFM:
+14662.423 / 4315.516 / 0. These are demo-model results, not verified capacity.
+
+Compose now configures AUTOSCALER_SIMULATION_REPORT_PATH to
+/app/data/scaling-comparison.json, copied from the completed comparison.
+Host main.py supports --simulation-report-path / the same environment variable.
+The existing exporter reads the optional JSON on scrape, validates comparable
+data/period/model/policy and nonnegative finite totals, and exposes separate
+simulation cost/deficit/duration gauges with appid/strategy/max_instances labels.
+Invalid reports show simulation_report_available=0 and no fabricated results;
+creation timestamp remains visible for valid reports. These are offline totals,
+not live EUR/hour. controller_info identifies backend/resource type explicitly.
+Ruby Acorn Scaling has 35 unique panels including offline comparisons, report
+status/time/duration and actual controller type. Live Prometheus verified all
+nine comparison series and an unexpired shadow predicted_required_instances.
+No predictive strategy controls live resources. Retain the existing observer
+and logs; no observer configuration change was needed for this milestone.
+
+The user then clarified that no VM host or VMs exist. They selected the local
+Windows PC, preferably VirtualBox/VBoxManage, with 2–3 small Linux VMs cloned
+once from a template and then started/stopped as a fixed pool. They explicitly
+requested installation/setup guidance BEFORE controller implementation.
+Do not implement or enable VirtualBox control yet. docs/local-virtualbox-setup.md
+records resources, official compatibility sources and staged setup. Windows 11
+Home cannot host the normal Hyper-V role. WSL2 uses the Windows hypervisor;
+Oracle documents VirtualBox coexistence through Windows Hypervisor Platform,
+with potentially substantial performance degradation. Preserve WSL2/security
+settings and test one 1 GiB/1-vCPU Debian guest first. Only about 3.2 GiB host
+RAM was free; do not assume three guests fit. No hypervisor installation,
+feature change or independent VM creation has been performed.
+Next user action: install stable Windows x86-64 VirtualBox, check Windows
+Hypervisor Platform, then confirm VBoxManage --version/list vms and Docker
+health. After template/clone lifecycle checks, implement explicit UUID-scoped
+control; never clone/delete machines during scaling. Full-VM start/stop
+verification remains outstanding until setup exists.
+
+Verification of comparison/telemetry: 288 pytest tests passed; diff whitespace,
+Compose configuration and Prometheus configuration passed. Live Prometheus
+exposed nine comparison series plus original TimesFM shadow forecast. Grafana
+loaded the comparison panels. Fake control remains active.

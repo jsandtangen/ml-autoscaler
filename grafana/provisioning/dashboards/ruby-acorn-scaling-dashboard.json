@@ -2,7 +2,7 @@
   "uid": "ruby-acorn-scaling",
   "title": "Ruby Acorn Scaling",
   "schemaVersion": 41,
-  "version": 3,
+  "version": 4,
   "editable": true,
   "tags": [
     "ruby-acorn",
@@ -1267,6 +1267,289 @@
           "legendFormat": "game {{appid}}",
           "refId": "A",
           "instant": true
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "title": "Offline comparison: caps 7 / 10 / 15 (simulation, not live spending)",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Same hourly history and evaluation period (see duration below) and original TimesFM forecasts in all scenarios. Customer share 0.1%, 100 players/instance, 10% buffer; one-hour startup and at most 2 changes/hour. Fixed allocation equals the cap. Costs below are simulated period totals at EUR 0.10/instance-hour. Player-hours measure modeled demand beyond ready capacity. TimesFM controls no live resources. Check report availability and creation time; values describe a completed offline run."
+      }
+    },
+    {
+      "id": 29,
+      "title": "Offline total cost (EUR / evaluation period)",
+      "type": "bargauge",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 0,
+        "y": 54,
+        "w": 8,
+        "h": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "simulation_cost_eur{job=\"autoscaler\",appid=~\"${game:regex}\"}",
+          "legendFormat": "{{strategy}} / max {{max_instances}} / {{appid}}",
+          "instant": true,
+          "datasource": "Prometheus"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "title": "Offline hours below nominal capacity",
+      "type": "bargauge",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 8,
+        "y": 54,
+        "w": 8,
+        "h": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "simulation_hours_below_capacity{job=\"autoscaler\",appid=~\"${game:regex}\"}",
+          "legendFormat": "{{strategy}} / max {{max_instances}} / {{appid}}",
+          "instant": true,
+          "datasource": "Prometheus"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "title": "Offline unmet customer player-hours",
+      "type": "bargauge",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 16,
+        "y": 54,
+        "w": 8,
+        "h": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 1,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "simulation_unserved_player_hours{job=\"autoscaler\",appid=~\"${game:regex}\"}",
+          "legendFormat": "{{strategy}} / max {{max_instances}} / {{appid}}",
+          "instant": true,
+          "datasource": "Prometheus"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "title": "Offline report available (1 = valid)",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 0,
+        "y": 66,
+        "w": 12,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "simulation_report_available{job=\"autoscaler\"}",
+          "instant": true,
+          "datasource": "Prometheus"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "title": "Offline report created",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 12,
+        "y": 66,
+        "w": 12,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsIso"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "simulation_report_timestamp_seconds{job=\"autoscaler\"}",
+          "instant": true,
+          "datasource": "Prometheus"
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "title": "Active controller / actual resource type",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 0,
+        "y": 70,
+        "w": 16,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "name",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "controller_info{job=\"autoscaler\",appid=~\"${game:regex}\"}",
+          "legendFormat": "{{backend}} / {{resource_type}} / {{appid}}",
+          "instant": true,
+          "datasource": "Prometheus"
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "title": "Offline evaluation duration (hours)",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "x": 16,
+        "y": 70,
+        "w": 8,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(simulation_evaluated_hours{job=\"autoscaler\",appid=~\"${game:regex}\"})",
+          "instant": true,
+          "datasource": "Prometheus"
         }
       ]
     }
