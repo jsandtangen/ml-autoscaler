@@ -65,6 +65,9 @@ work below is guidance, not a requirement to expand every task's scope.
 | `src/scaler/data/client.py` | Prometheus HTTP queries, response parsing, player count samples and exceptions |
 | `src/scaler/data/history.py` | Append-only CSV player-count history |
 | `src/scaler/forecasting.py` | Persistence/moving-average forecasts and rolling MAE/RMSE evaluation |
+| `src/scaler/timesfm_forecasting.py` | Lazy pretrained TimesFM 2.5 adapter for offline evaluation |
+| `src/scaler/training.py` | Chronological train/validation/test windows and forecast scoring |
+| `scripts/finetune_timesfm.py` | Offline TimesFM Transformers LoRA training and held-out comparisons |
 | `scripts/evaluate_forecasts.py` | Offline baseline comparison from player history, with JSON output |
 | `src/scaler/strategies/base.py` | Abstract `ScalingStrategy` contract |
 | `src/scaler/strategies/threshold.py` | Current threshold-based instance calculation |
@@ -99,12 +102,37 @@ work below is guidance, not a requirement to expand every task's scope.
   uses identical rolling windows and future targets, reporting MAE/RMSE per game.
   Window/horizon units are observations, not elapsed time; irregular sampling is
   not resampled. CSV loading sorts each appid separately and rejects malformed
-  rows and duplicate timestamps. No ML model or predictive scaling is enabled.
+  rows and duplicate timestamps. Optional pretrained TimesFM evaluation is
+  available; offline LoRA training is separate and no predictive scaling is enabled.
   Run `.\.venv\Scripts\python.exe scripts/evaluate_forecasts.py --appid 730
   --window-size 10 --horizon 1` against default `data/player_history.csv`, or
   supply `--history-path`. At least window size + horizon observations are needed
   per evaluated game. Later models must be compared on the same chronological
   evaluation period and future targets.
+- `--include-timesfm` in `scripts/evaluate_forecasts.py` adds pretrained TimesFM
+  2.5 (`google/timesfm-2.5-200m-pytorch`) via optional `.[ml]` dependencies
+  (`timesfm[torch]==2.0.2`). It uses the same windows and targets as baselines,
+  returning prediction step `horizon`, with no fitting or future inputs.
+  Dependencies/weights load lazily once; graph compilation is disabled.
+  Cache defaults to ignored `.model-cache/`; `--model-cache-dir` overrides it
+  and `--local-files-only` prevents downloads. Invalid forecasts fail explicitly.
+  Unit tests use a fake model without PyTorch/network. No live scaling uses ML.
+- `scripts/finetune_timesfm.py` uses optional `.[training]` dependencies
+  (Transformers 5.20.2, PEFT 0.21.2, PyTorch) and
+  `google/timesfm-2.5-200m-transformers`, separately cached from native PyTorch
+  inference weights. It trains rank-4 all-linear LoRA on raw counts with internal
+  normalization. Defaults: context 192, horizon 1, validation/test 72 each,
+  3 epochs, batch 4, lr 5e-5, seed 42, 4 CPU threads, float32; CPU if no CUDA.
+  Context must be a multiple of 32. Data must have regular increasing intervals.
+  Targets are disjoint by chronological split, with entire multi-step horizons
+  contained in one split. Earlier revealed observations may enter rolling
+  validation/test contexts without fitting on their targets. Best trained epoch
+  is selected by validation MAE; test is scored only after selection, alongside
+  adapter-disabled zero-shot and the same two baselines. Models are not deployed.
+  Require a fresh `--output-dir`, preferably under ignored `model-runs/`.
+  Save PEFT `adapter/`, `report.json` and `test_predictions.csv` (settings, data
+  hash, versions, boundaries, epoch/held-out scores). Unit tests cover splits,
+  leakage boundaries, gaps and failure handling without importing ML libraries.
 - Strategies are selected by `--strategy` or `AUTOSCALER_STRATEGY`, defaulting
   to `threshold`. `src/scaler/strategies/registry.py` maps names to implementations;
   unknown names fail at startup. Add algorithms there without changing the loop.
@@ -259,6 +287,50 @@ Run the continuous prototype loop:
 
 Editable installation makes `scaler` importable with the src layout. Prefer it
 over adding sys.path hacks.
+
+On 2026-10-20, the existing `.venv` Python failed to start (exit -1073741515).
+A separate `.venv-ml` was created using installed Python 3.12.11, preserving the
+old environment. Use `.\.venv-ml\Scripts\python.exe` for this workspace until
+the original environment is repaired. Install `.[dev,ml]` for TimesFM work.
+No `data/player_history.csv` was present during inspection. A later external
+history acquisition is documented below; it does not populate the live file.
+The full suite passed with 166 tests. TimesFM/PyTorch were installed in
+`.venv-ml`; a real checkpoint inference and the full three-model CLI comparison
+were verified on 66 synthetic observations (window 64, horizon 2). The CLI
+verification used cached weights with `--local-files-only`. Generated synthetic
+input/report are under ignored `demo-results/timesfm-synthetic-*`; these are
+integration evidence, not training data or evidence of real-game accuracy.
+
+On 2026-10-20, real SteamCharts appid 730 history was downloaded locally under
+ignored `data/external/steamcharts/`. The raw JSON contains mixed resolutions;
+`730-hourly.csv` retains only the consecutive hourly suffix (720 observations,
+2026-09-20 07:00 to 2026-10-20 06:00 UTC). Timestamps are rounded to the nearest
+UTC hour (max shift 207 seconds), without interpolating counts or filling rows;
+the raw JSON preserves original timestamps. There are no missing/duplicate hour
+slots. A suspicious zero at 2026-10-01 18:00 UTC remains in the full CSV.
+`730-hourly-after-zero.csv` starts after it and has 444 consecutive observations.
+Use this initial subset with window 168, horizon 1 (hours, not minutes); it gives
+276 evaluation targets. Metadata includes source URLs, hashes and quality flags.
+Baseline evaluation and one actual TimesFM inference succeeded on the subset;
+full TimesFM rolling scores are not yet computed. Treat results as exploratory,
+and verify on newly collected data later. No explicit redistribution license
+was verified; keep source data local and retain attribution.
+The live Docker stack was running when checked. A separate raw Prometheus
+snapshot under `data/external/prometheus/730-last-7-days.json` has 438 actual
+scrape samples and a roughly 3.87-day gap; do not treat it as contiguous or merge
+its cadence with hourly external data. Recheck live status each session.
+
+On 2026-10-20, the first actual TimesFM LoRA run completed under
+`model-runs/timesfm-730-lora-2026-10-20/` on CPU. Data split: 300/72/72 hours;
+192-hour context, one-hour horizon, 108 training windows, 3 epochs, rank 4,
+1,382,912 trainable adapter parameters. Best validation epoch was 3. Test MAE /
+RMSE (72 identical targets): persistence 68640.72 / 86375.38; moving average
+260793.30 / 292092.67; Transformers zero-shot 15819.30 / 19903.99; LoRA
+16049.56 / 19835.22. Validation MAE improved slightly, but test MAE worsened
+about 1.46% (RMSE improved about 0.35%); do not claim fine-tuning beat the base
+model overall or deploy it automatically. Adapter weights were updated and
+saved separately; reports/predictions preserve the experiment. Full suite:
+186 tests passed; installed dependency compatibility and diff checks passed.
 
 With Docker Desktop running Linux containers:
 

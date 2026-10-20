@@ -1,9 +1,12 @@
 personal_notes.md
 .env
 .venv/
+.venv-ml/
+.model-cache/
 __pycache__/
 .pytest_cache/
 *.py[cod]
 *.egg-info/
 demo-results/
 /data/
+/model-runs/

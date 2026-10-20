@@ -10,6 +10,8 @@ dependencies = ["requests>=2.34"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+ml = ["timesfm[torch]==2.0.2"]
+training = ["torch>=2.0", "transformers==5.20.2", "peft==0.21.2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

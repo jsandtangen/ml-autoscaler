@@ -1,5 +1,10 @@
 .git
 .venv
+.venv-ml
+.model-cache
+.uv-cache
+data
+model-runs
 .env
 .env.*
 __pycache__

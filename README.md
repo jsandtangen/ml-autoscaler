@@ -212,6 +212,172 @@ These are offline comparison results over available history. A later ML model
 should use the same held-out chronological period, windows and horizon for a
 fair comparison. Forecasting lives separately from the scaling strategies.
 
+### TimesFM evaluation
+
+The optional ML extra adds pretrained **TimesFM 2.5 (200M, PyTorch)** through
+`timesfm==2.0.2`. This first integration uses zero-shot inference: our recorded
+player counts are the model's input context, not a dataset used to train its
+weights. Fine-tuning is a separate experiment described below; predictive
+autoscaling is not implemented yet.
+The adapter follows the [official TimesFM API](https://pypi.org/project/timesfm/2.0.2/).
+
+Install and compare all three forecasts on the same rolling windows and targets:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,ml]"
+.\.venv\Scripts\python.exe scripts/evaluate_forecasts.py --include-timesfm --appid 730 --window-size 512 --horizon 10
+```
+
+Use a working Python 3.11+ environment. In the current workspace, `.venv-ml`
+was created separately with Python 3.12.11 because the old `.venv` cannot start;
+replace `.venv` in these commands with `.venv-ml` to use it. The old environment
+was preserved.
+
+The first TimesFM prediction downloads `google/timesfm-2.5-200m-pytorch` weights
+from Hugging Face to ignored `.model-cache/`; installation and the initial
+download require internet access and substantial disk space. Override the cache
+with `--model-cache-dir PATH`. After downloading, `--local-files-only` prevents
+checkpoint downloads. Baseline-only evaluation needs neither ML dependencies
+nor model weights. The model is loaded once and reused across windows/games;
+PyTorch graph compilation is disabled for this host integration.
+
+For horizon 10 the adapter returns the **tenth future prediction**, matching
+the evaluator's target. The JSON report includes the checkpoint ID and the
+`pretrained_zero_shot` mode. Windows and horizon still count observations;
+timestamps are not model features and missing intervals are not resampled.
+Inspect sampling gaps before interpreting forecasts as minutes into the future.
+The example needs at least 522 observations per selected game; larger context
+does not by itself establish sufficient evaluation coverage. Choose window and
+horizon before comparing models and keep the final chronological test period
+separate from model/parameter selection.
+
+Unit tests inject a fake model and never download weights. A successful real
+model smoke check on synthetic input verifies inference only, not accuracy on
+game data. Actual forecast quality must be measured on collected player history.
+
+### Historical source snapshot (2026-10-20)
+
+A local [SteamCharts](https://steamcharts.com/app/730) snapshot is available under
+ignored `data/external/steamcharts/`. SteamCharts describes its collection as
+[hourly concurrent-player observations from the Steam Web API](https://steamcharts.com/about).
+The downloaded `730-chart-data.json` mixes older coarse aggregates and recent
+hourly observations. Only its consecutive approximately hourly suffix was used:
+
+- `730-hourly.csv`: 720 observations, September 20 to October 20, 2026 (UTC).
+- `730-hourly-after-zero.csv`: recommended initial subset, 444 observations,
+  October 1 at 19:00 to October 20 at 06:00 (UTC).
+- `730-hourly.metadata.json`: source URLs, hashes, preparation and quality flags.
+
+Hourly timestamps were rounded to the nearest UTC hour (maximum shift 207
+seconds), with exactly one observed count per hour and no missing/duplicate hour
+slots. Original timestamps are preserved in the raw JSON. No counts were
+interpolated or synthesized. The full series contains a suspicious zero at
+October 1, 18:00 UTC, between counts above one million. Its cause is unverified;
+the recommended subset starts after it instead of treating it as known demand
+or inventing a replacement.
+
+Run the comparison with one week of context and a one-hour forecast horizon:
+
+```powershell
+.\.venv-ml\Scripts\python.exe scripts/evaluate_forecasts.py --history-path data/external/steamcharts/730-hourly-after-zero.csv --appid 730 --window-size 168 --horizon 1 --include-timesfm --local-files-only
+```
+
+This provides 276 rolling evaluation targets. These hourly data cannot validate
+forecasts five minutes ahead. They are local third-party source snapshots, not
+an openly licensed dataset for redistribution. Keep source attribution and
+check permissions before publishing the raw dataset. Baselines and one real
+TimesFM forecast have been verified on this subset; a complete TimesFM score
+comparison has not yet been run. Snapshot selection followed a visible quality
+flag, so results are exploratory and should later be checked on newly collected
+data.
+
+A separate raw local Prometheus snapshot is retained under
+`data/external/prometheus/730-last-7-days.json`: 438 original scrape observations
+with a gap of about 3.87 days. It is not merged into the hourly series. These
+imported files do not populate the live loop's `data/player_history.csv`.
+
+### Fine-tune TimesFM on player history
+
+`scripts/finetune_timesfm.py` trains a LoRA adapter with the Transformers
+TimesFM 2.5 checkpoint, following the
+[official fine-tuning workflow](https://github.com/google-research/timesfm/tree/master/timesfm-forecasting/examples/finetuning).
+Install the optional training dependencies and run a new experiment:
+
+```powershell
+.\.venv-ml\Scripts\python.exe -m pip install -e ".[dev,ml,training]"
+.\.venv-ml\Scripts\python.exe scripts/finetune_timesfm.py --history-path data/external/steamcharts/730-hourly-after-zero.csv --appid 730 --output-dir model-runs/my-timesfm-run --epochs 3
+```
+
+The first run downloads `google/timesfm-2.5-200m-transformers` to `.model-cache/`.
+This is a different checkpoint format from the inference-only PyTorch adapter.
+Use `--local-files-only` once the Transformers checkpoint is cached.
+Training uses CPU when CUDA is unavailable. Defaults are float32, four CPU
+threads, batch size 4, learning rate 0.00005 and seed 42. LoRA uses rank 4,
+alpha 8 and dropout 0.05 on all linear layers. Raw counts are passed to the
+model's internal normalization. Only adapter parameters are optimized.
+
+For the 444-row hourly subset, the chronological split is:
+
+| Period | Observations | Purpose |
+| --- | --- | --- |
+| First 300 hours | 300 | Training; 108 past/target windows |
+| Next 72 hours | 72 | Select best epoch by validation MAE |
+| Last 72 hours | 72 | Final test after epoch selection |
+
+Default context is 192 hours (a multiple of TimesFM's 32-observation input
+patch), with a one-hour horizon. Future targets cannot cross split boundaries.
+Rolling validation/test contexts can include observations revealed earlier in
+those periods; the adapter is not updated on them. This is repeated one-hour
+forecasting, not a 72-hour forecast issued once. Irregular intervals are rejected.
+
+The output directory must be new. Ignored `model-runs/` stores `adapter/`,
+`report.json` and `test_predictions.csv`. Reports record data hash, split
+boundaries, settings, package versions, validation scores per epoch and test
+MAE/RMSE for persistence, moving average, zero-shot TimesFM and the selected
+LoRA adapter. The report also says whether validation beats the base model;
+training does not imply improvement. No adapter is automatically activated in
+the autoscaler. The test period is held out from our fine-tuning, but it was
+part of previously inspected data and pretraining overlap is unknown. Results
+are exploratory and need confirmation on subsequently collected data.
+
+First local run on October 20, 2026:
+`model-runs/timesfm-730-lora-2026-10-20/`. Three CPU epochs updated 1,382,912
+adapter parameters; epoch 3 had the best validation MAE. On the same 72 held-out
+one-hour targets:
+
+| Forecast | MAE (players) | RMSE (players) |
+| --- | ---: | ---: |
+| Persistence | 68,641 | 86,375 |
+| Moving average (192 hours) | 260,793 | 292,093 |
+| TimesFM zero-shot (Transformers) | 15,819 | 19,904 |
+| TimesFM LoRA | 16,050 | 19,835 |
+
+LoRA improved validation MAE slightly, but its test MAE was about 1.46% worse
+than the base model; test RMSE was about 0.35% lower. This first small experiment
+does not establish an improvement from fine-tuning. The trained adapter is kept
+for reproducibility; it is not selected as a replacement for the base model.
+
+To load a saved adapter for forecasting with the same context configuration:
+
+```python
+import torch
+from peft import PeftModel
+from transformers import TimesFm2_5ModelForPrediction
+
+base = TimesFm2_5ModelForPrediction.from_pretrained(
+    "google/timesfm-2.5-200m-transformers",
+    cache_dir=".model-cache", local_files_only=True, dtype=torch.float32,
+)
+model = PeftModel.from_pretrained(base, "model-runs/my-timesfm-run/adapter")
+model.eval()
+# past_counts must be the latest 192 hourly observations.
+with torch.no_grad():
+    prediction = model(
+        past_values=torch.tensor([past_counts], dtype=torch.float32),
+        forecast_context_len=192,
+    ).mean_predictions[0, 0].item()
+```
+
 ### Strategies per game
 
 Use a TOML configuration to select different strategies for different Steam
