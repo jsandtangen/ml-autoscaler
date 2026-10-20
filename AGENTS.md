@@ -18,6 +18,48 @@ precedence over this guide.
 
 ## Project purpose and current status
 
+Pegasus one-VM preparation (2026-10-20): user explicitly authorized creating
+dedicated ruby-acorn-key if no suitable keypair existed. Fresh API inventory
+still had no VMs/keypairs. Generated local Ed25519 key under
+%LOCALAPPDATA%/RubyAcorn/openstack/keys/ruby-acorn-key, registered public key only,
+and verified the returned public key matches. NTFS allows only current user;
+never print/copy private key or credential values. No VM/security/network
+mutation has occurred. Existing default SG permits egress and ingress from its
+own group only; no new port rules are needed for API start/stop testing.
+Fresh Compute quota/usage is 10/0 instances, 12/0 cores, 24576/0 MiB RAM;
+Neutron port quota/usage 10/0. data/pegasus/one-vm-test.json is now a validated
+single-VM config: cloud openstack, pool vm-test, appid 730, hard maximum 1,
+selected Ubuntu 24.04 / aem.1c2r.50g / ACIT4410 / ruby-acorn-key / default SG.
+Existing --config preflight passed, and DecisionEngine dry-run planned exactly
+one create while reporting actual 0 and no VM actions. See
+docs/pegasus-one-vm-plan.md for concrete proposed create/stop/start sequence,
+120s cooldowns and final ACTIVE state. VM operations await explicit user approval;
+do not interpret the authorized keypair creation as approval to create the VM.
+No automatic deletion, cleanup, public IP, SG changes or continuous manager.
+
+Pegasus authenticated read-only verification (2026-10-20) supersedes the earlier
+unverified-access notes below. User-provided downloaded clouds.yaml was copied
+outside repo/OneDrive to %LOCALAPPDATA%/RubyAcorn/openstack/clouds.yaml; NTFS
+allows only the current Windows user. Never print/read its credential fields
+into tool output. SDK cloud name is openstack, region Pilestredet. User confirmed
+project ACIT4410_H26_jesan5100, ID 234f15222c5e4396851d2713697893b1.
+Authentication, Compute, Image and Network reads succeeded outside the Codex
+sandbox. Direct sandbox HTTPS failed; no TLS verification was disabled.
+Compute quota/usage: instances 10/0, vCPU 12/0, RAM 24576/0 MiB; no VMs exist.
+11 flavors and 7 active images were listed; see docs/pegasus.md for full inventory.
+Recommend aem.1c2r.50g + Ubuntu 24.04 + existing ACIT4410 network for a later
+approved infrastructure demo, not proven 100-player capacity. Network has DHCP;
+default security group exists. No keypairs were returned, so concrete --config
+preflight awaits an appropriate keypair; --discover preflight passed without
+selecting fabricated resources. No VM or other cloud resource was changed.
+inspect_pegasus.py now supports --discover --cloud openstack --expected-project-id
+for sanitized, strictly read-only inventory/quota reporting. Downloaded OpenRC
+was never sourced; only non-secret configuration fields were extracted.
+Interactive setup helper had a Set-Acl privilege failure on an already protected
+directory; it now skips redundant ACL writes and is tested with synthetic input.
+340 tests passed, including the protected-directory retry regression. Evidence is ignored
+under data/pegasus/. No push/merge, deployment or continuous Pegasus manager.
+
 Pegasus integration work (2026-10-20) now has a separate SDK backend at
 src/scaler/infrastructure/pegasus_controller.py, selected with --controller
 pegasus / --pegasus-config. Dry-run is the default; real changes require the

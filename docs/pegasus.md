@@ -1,6 +1,103 @@
 # Pegasus / OpenStack
 
+Senere klargjøring samme dag: brukeren autoriserte et dedikert SSH-keypair.
+`ruby-acorn-key` er nå registrert med kun offentlig nøkkel; privatnøkkelen ligger
+brukerbeskyttet utenfor repoet. Konkret én-VM-konfigurasjon har bestått lesende
+forhåndskontroll og tørrkjøring. **Ingen Pegasus-VM er opprettet.**
+Se [én-VM-planen som avventer godkjenning](pegasus-one-vm-plan.md).
+
+## Bekreftet lesende kontroll 2026-10-20
+
+Den nedlastede application-credential-konfigurasjonen er nå satt opp lokalt.
+En beskyttet kopi ligger i
+`%LOCALAPPDATA%\RubyAcorn\openstack\clouds.yaml`, utenfor repo og OneDrive.
+NTFS-kontroll viste kun innlogget Windows-bruker med FullControl. Credential
+ID og Secret ble ikke skrevet ut eller lagt i Git. Den nedlastede OpenRC-filen
+ble ikke kjørt; bare ufølsomme prosjekt-/region-/auth-URL-felt ble lest.
+Nedlastede originalfiler i Downloads finnes fortsatt og har ikke fått sine
+rettigheter endret i denne operasjonen.
+
+Filen bruker cloud-navnet **openstack**, region **Pilestredet**, public interface
+og `v3applicationcredential`. Auth URL er
+`https://pegasus.sky.oslomet.no:5000`; SDKs versjonsoppdagelse virker uten at
+den nedlastede adressen ble endret. Brukeren bekreftet prosjektet
+`ACIT4410_H26_jesan5100`, ID `234f15222c5e4396851d2713697893b1`.
+
+`scripts/inspect_pegasus.py --discover` bestod autentisering, prosjektkontroll,
+Compute, kvoter, flavors, images og nettverk fra Codex utenfor sandkassen.
+Direkte uautentisert HTTPS innenfor sandkassen feilet; utenfor svarte Horizon
+og Identity 200. Ingen nettverks-/TLS-omgåelse ble konfigurert. Dette bekrefter
+tilgang fra dette kjøremiljøet nå, ikke at tilgangen virker uten OsloMet-nett/VPN.
+
+| Compute-kvote | Grense | Brukt |
+| --- | ---: | ---: |
+| Instanser | 10 | 0 |
+| vCPU | 12 | 0 |
+| RAM | 24576 MiB (24 GiB) | 0 |
+
+VM-inventaret er tomt. Tilgjengelige flavors, alle med 50 GiB disk:
+
+| Flavor | vCPU | RAM GiB |
+| --- | ---: | ---: |
+| aem.1c2r.50g | 1 | 2 |
+| aem.2c2r.50g | 2 | 2 |
+| aem.2c4r.50g | 2 | 4 |
+| aem.2c8r.50g | 2 | 8 |
+| aem.4c8r.50g | 4 | 8 |
+| aem.4c16r.50g | 4 | 16 |
+| aem.8c16r.50g | 8 | 16 |
+| aem.8c.32r.50g | 8 | 32 |
+| aem.12c16r.50g | 12 | 16 |
+| aem.16c16r.50g | 16 | 16 |
+| aem.16c32r.50g | 16 | 32 |
+
+Synlig flavor betyr ikke at den passer kvoten. Eksempelvis overskrider 16 vCPU
+eller 32 GiB RAM prosjektgrensen allerede for én VM.
+
+Syv images er aktive: Ubuntu-22.04-LTS (Jammy Jellyfish), Ubuntu-24.04-LTS
+(Noble Numbat), Ubuntu 26.04-LTS (Resolute Raccoon), Debian 12 (Bookworm),
+Debian13 (Trixie), Rocky10.1 og Arch Linux.
+
+To nettverk er synlige og ACTIVE: **ACIT4410** (shared, internal) og **oslomet**
+(shared, external). ACIT4410 har IPv4-subnettet `acit4410nett` med DHCP på.
+Prosjektet har security group `default` med fire regler. Ingen keypairs ble
+returnert for denne brukeren. Ingenting av dette ble opprettet eller endret.
+
+Anbefalt første oppsett for en start/stopp-prototype:
+
+- Flavor `aem.1c2r.50g`, ID `2db2d811-a566-4438-b7ad-64735413c2db`.
+- Image `Ubuntu-24.04-LTS (Noble Numbat)`, ID `414d4efa-e67d-43cc-b484-3d88817bcec1`.
+- Eksisterende interne nettverk `ACIT4410`, ID `374240bf-b8c4-45cd-b377-e32a247beb43`.
+- Eksisterende security group `default`; ingen regelendringer foreslås utført nå.
+- Start senere med én dedikert test-VM etter godkjenning; maksimum forblir seks.
+
+Dette er en ressursanbefaling ut fra inventar og kvote, ikke en gjennomført
+boot- eller spillkapasitetstest. Seks slike VM-er ville bruke 6 vCPU, 12 GiB RAM
+og 300 GiB allokert disk. Disk-/portkapasitet og SSH-/spilltilgjengelighet er
+ikke verifisert. Antakelsen 100 spillere/VM er fortsatt kun en modell.
+
+Før kontroll av en konkret `--config` og eventuell senere opprettelse må et
+egnet eksisterende keypair velges eller en offentlig nøkkel registreres med
+egen godkjenning. Den opprinnelige `--config`-kontrollen ble derfor ikke kjørt
+med en oppdiktet keypair; oppdagelsesmodusen ble kjørt og bestått. Ingen VM-er,
+keypairs, sikkerhetsregler eller andre skyressurser ble endret.
+
+Gjenta kun lesende inventar:
+
+```powershell
+$python = 'data/pegasus-test-venv/Scripts/python.exe'
+$env:OS_CLIENT_CONFIG_FILE = Join-Path $env:LOCALAPPDATA 'RubyAcorn\openstack\clouds.yaml'
+& $python scripts/inspect_pegasus.py --discover --cloud openstack --expected-project-id 234f15222c5e4396851d2713697893b1
+```
+
+Ufarlige inventarrapporter er lagret under ignorerte
+`data/pegasus/inventory-readonly.json` og `setup-prerequisites-readonly.json`.
+Lokale tester: 340 bestått (inkludert mocket lesende inventar og syntetisk
+credential-oppsett); SDK gir fire deprecation-advarsler.
+
 ## Status og avgrensning
+
+Historisk status fra implementeringen før den autentiserte kontrollen ovenfor:
 
 2026-10-20: Pegasus svarer med OpenStack Horizon på
 `https://pegasus.sky.oslomet.no/project/` (videresending til `/auth/login/`).
@@ -64,6 +161,48 @@ Application credentials er OpenStacks mekanisme for apper uten brukerpassord:
 Se også [SDK-konfigurasjon](https://docs.openstack.org/openstacksdk/latest/user/config/configuration.html).
 
 ## Konfigurasjon og lesende kontroll
+
+### Lokal veiviser og inventar før valg av VM
+
+Når bare Credential ID og Secret er lagret lokalt, kjør veiviseren i et eget
+PowerShell-vindu fra repoets rot:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\configure_pegasus_credentials.ps1
+```
+
+Veiviseren ber om prosjekt-ID fra Horizon (ikke Credential ID), auth URL,
+eventuell region og deretter Credential ID og Secret med skjult inntasting.
+Den oppretter `%LOCALAPPDATA%\RubyAcorn\openstack\clouds.yaml`, utenfor repo og
+OneDrive, med mappe-/filarv begrenset til innlogget Windows-bruker. Eksisterende
+clouds.yaml overskrives aldri. `project-id.txt` inneholder kun forventet prosjekt-ID.
+Ikke send filinnhold eller credentials til chatten. Filen er i klartekst på disk
+med NTFS-tilgangskontroll; den er ikke en kryptert secret store.
+
+Den eksisterende lesende kontrollen har også en oppdagelsesmodus uten krav om
+allerede valgt flavor, image, nettverk eller keypair:
+
+```powershell
+$python = 'data/pegasus-test-venv/Scripts/python.exe'
+$configDirectory = Join-Path $env:LOCALAPPDATA 'RubyAcorn\openstack'
+$env:OS_CLIENT_CONFIG_FILE = Join-Path $configDirectory 'clouds.yaml'
+$expectedProject = (Get-Content -LiteralPath (Join-Path $configDirectory 'project-id.txt') -Raw).Trim()
+& $python scripts/inspect_pegasus.py --discover --cloud pegasus --expected-project-id $expectedProject
+```
+
+Dette leser faktisk prosjekt-ID, VM-inventar, Compute-kvoter, flavors, images
+og nettverk. Forventede kvoter er 10 instanser, 12 vCPU og 24576 MiB RAM
+(24 GiB). Eventuelle avvik vises eksplisitt og gir statuskode 1. Ved feil i
+autentisering, prosjektvalg eller API/nettverk stopper videre lesing; kun
+feilfase og feiltype vises, aldri rå SDK-feilmeldinger. Ingen controller eller
+VM-operasjoner startes i denne modusen. Listen viser tilgjengelige ressurser,
+men bekrefter ikke at valgt flavor/image/nettverk kan bootes sammen.
+
+Nettverkstest i Codex 2026-10-20: HTTPS mot Horizon og Identity v3 ga 200
+utenfor sandkassen, mens samme forsøk innenfor sandkassen feilet.
+Compute-/Image-/Network-tilgang må verifiseres med application credentials.
+
+### Kontroll av konkret VM-konfigurasjon
 
 Installer i et fungerende Python 3.11+-miljø. Kommandoene under bruker det
 isolerte testmiljøet som ble opprettet under arbeidet; `.venv` kunne ikke kjøre
