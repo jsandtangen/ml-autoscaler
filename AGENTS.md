@@ -18,6 +18,36 @@ precedence over this guide.
 
 ## Project purpose and current status
 
+Latest priority (2026-10-20, supersedes the earlier plan B decision for scaling):
+the user explicitly requested real VM control in Moria and confirmed that
+start/stop of a fixed pool satisfies the course requirement. Defer further
+TimesFM development; leave its existing observer separate. Preserve school
+monitoring and all four existing VMs. Read-only Moria OpenStack access works via
+ubuntu@moriavm and existing OpenRC application credentials; never print/copy them.
+Compute quota is 5 instances/10 cores/10240 MiB RAM; four VMs exist including
+stopped moiravm. Only one new instance fits without quota/reuse changes.
+
+OpenStackController in src/scaler/infrastructure/openstack_controller.py now
+supports explicit UUID allowlists plus ruby_acorn_pool/ruby_acorn_game ownership
+properties. It performs only show/start/stop, waits for ACTIVE/SHUTOFF with no
+pending task, and rejects unhealthy/transitional/unowned states. ACTIVE does
+not establish game-server readiness. main.py supports --controller openstack
+and --openstack-pool / AUTOSCALER_OPENSTACK_POOL; one matching appid per process,
+maximum bounded to the pool size, default max change 2. SSH runs on the host,
+with strict host-key verification and existing remote authentication. Only one
+manager may own a pool; there is no distributed lock. Compose stays fake.
+scripts/demo_openstack_scaling.py is read-only unless --apply is supplied and
+requires an initially stopped pool plus a fresh report path for its engine demo.
+See docs/moria-vm-pool.md for the concrete one-VM creation/start/stop proposal.
+Infrastructure approval is still required before executing that proposal.
+No VM creation/start/stop or service deployment occurred during implementation.
+Verification: 311 pytest tests passed and diff whitespace checks passed.
+A real read-only call through the new SSH transport returned SHUTOFF for an
+existing VM; the ownership guard correctly rejected that unowned VM. The installed
+OpenStack CLI does not accept --os-api-timeout; use the remote timeout utility.
+Actual start/stop permissions, new-guest boot and live reconciliation remain
+unverified until approval and execution of the dedicated one-VM test.
+
 Ruby Acorn is an early Python autoscaler prototype. It reads game player counts
 from Prometheus, calculates a desired number of VM instances, and applies a
 scaling decision through a controller. The default is a fake in-memory controller;
@@ -724,3 +754,16 @@ or key contents were exposed. 295 pytest tests passed, including backup content,
 path and cleanup guards; PowerShell parsing and diff whitespace checks passed.
 A complete application restore rehearsal has not been performed. Backup approval
 does not authorize deleting VMs or original monitoring data.
+
+On 2026-10-20 at 14:22 Europe/Oslo, the user approved restarting the stopped
+host shadow observer. It was restarted hidden with the existing configuration,
+output directory and original seed (same SHA-256); existing journals were retained.
+The interpreter PID recorded in process.json was 15372 (launcher PID 25144).
+Initial Prometheus poll succeeded with waiting_for_boundary, next sample due
+15:00 local time. The missed 14:00 sample breaks the consecutive hourly context;
+normal forecasts require 192 consecutive observations again, without filling gaps.
+New process logs use restart-20261020-*.stdout.log / *.stderr.log in the same
+shadow directory. Verify process identity and fresh status each session.
+Local Compose services were running, all three Prometheus targets were UP,
+Grafana database health was ok, and reactive fake control reached 7 instances.
+No infrastructure configuration, controller choice or school services changed.

@@ -22,6 +22,7 @@ from scaler.exporter.autoscaler_metrics import (
 )
 from scaler.infrastructure.vm_controller import ControllerError, FakeVMController
 from scaler.infrastructure.docker_controller import DockerController
+from scaler.infrastructure.openstack_controller import OpenStackController, OpenStackPool
 from scaler.cost import CostModel
 from scaler.game_config import GameConfig, load_games
 from scaler.strategies.registry import (
@@ -61,6 +62,7 @@ class AutoscalerConfig:
     max_sample_age_seconds: int = 90
     shadow_decisions_dir: str | None = "data/shadow-capacity"
     simulation_report_path: str | None = None
+    openstack_pool: OpenStackPool | None = None
 
 
 def parse_label_filter(value: str) -> tuple[str, str]:
@@ -150,10 +152,12 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
     parser.add_argument("--simulation-report-path", default=os.getenv("AUTOSCALER_SIMULATION_REPORT_PATH"),
                         help="Read-only offline comparison JSON to expose as separate simulation metrics.")
     parser.add_argument(
-        "--controller", choices=["fake", "docker"],
+        "--controller", choices=["fake", "docker", "openstack"],
         default=os.getenv("AUTOSCALER_CONTROLLER", "fake"),
         help="Resource controller. Docker mode requires the host Docker CLI.",
     )
+    parser.add_argument("--openstack-pool", default=os.getenv("AUTOSCALER_OPENSTACK_POOL"),
+                        help="JSON file for one explicitly owned fixed VM pool over SSH.")
     parser.add_argument(
         "--docker-namespace", default=os.getenv("AUTOSCALER_DOCKER_NAMESPACE", "ruby-acorn-demo"),
         help="Ownership namespace for Docker demo containers.",
@@ -241,8 +245,18 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
     )
 
     args = parser.parse_args(argv)
+    pool = None
+    if args.controller == "openstack":
+        try:
+            if not args.openstack_pool:
+                raise ValueError("OpenStack requires --openstack-pool")
+            pool = OpenStackPool.load(args.openstack_pool)
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            parser.error(f"Invalid OpenStack pool: {error}")
     maximum = args.max_instances if args.max_instances is not None else (
-        args.docker_max_instances if args.controller == "docker" else 7)
+        len(pool.server_ids) if pool else args.docker_max_instances if args.controller == "docker" else 7)
+    if pool and maximum > len(pool.server_ids):
+        parser.error("Maximum instances exceeds the fixed VM pool")
     if args.controller == "docker":
         maximum = min(maximum, args.docker_max_instances)
     try:
@@ -252,7 +266,7 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         parser.error(str(error))
     if args.strategy not in STRATEGIES:
         parser.error(f"Unknown scaling strategy: {args.strategy}")
-    if args.controller not in {"fake", "docker"}:
+    if args.controller not in {"fake", "docker", "openstack"}:
         parser.error(f"Unknown controller: {args.controller}")
     if not 1 <= args.docker_max_instances <= 5:
         parser.error("Docker demo limit must be between 1 and 5")
@@ -262,6 +276,8 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         games = load_games(args.games_config) if args.games_config else ()
     except (OSError, ValueError) as error:
         parser.error(f"Invalid games configuration: {error}")
+    if pool and (games or label_filters.get("appid") != pool.appid):
+        parser.error("OpenStack supports one game; --label appid must match the pool")
 
     return AutoscalerConfig(
         prometheus_url=args.prometheus_url,
@@ -282,6 +298,7 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         capacity_policy=policy, max_instances=maximum, max_scaling_change=args.max_scaling_change,
         max_sample_age_seconds=args.max_sample_age_seconds, shadow_decisions_dir=args.shadow_decisions_dir,
         simulation_report_path=args.simulation_report_path,
+        openstack_pool=pool,
     )
 
 
@@ -294,6 +311,12 @@ def build_engine(
         controller = FakeVMController()
     elif config.controller_backend == "docker":
         controller = DockerController(config.docker_namespace, game, config.docker_max_instances)
+    elif config.controller_backend == "openstack":
+        pool = config.openstack_pool
+        if (pool is None or config.games or game != pool.appid
+                or config.max_instances > len(pool.server_ids)):
+            raise ValueError("OpenStack requires a matching single-game bounded pool")
+        controller = OpenStackController(pool)
     else:
         raise ValueError(f"Unknown controller: {config.controller_backend}")
     policy = config.capacity_policy if config else CapacityPolicy()

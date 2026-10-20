@@ -55,7 +55,8 @@ class AutoscalerMetrics:
         self._simulation_report_path = path
 
     def set_controller(self, backend, appid=None):
-        resource = {"fake": "simulated_instances", "docker": "local_containers"}[backend]
+        resource = {"fake": "simulated_instances", "docker": "local_containers",
+                    "openstack": "virtual_machines"}[backend]
         with self._lock:
             state = self._games.get(appid, GameMetrics())
             self._games[appid] = replace(state, controller=(backend, resource))

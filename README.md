@@ -2,6 +2,13 @@
 
 Early Python autoscaler prototype for game player counts.
 
+Current priority (2026-10-20): real start/stop control of a fixed OpenStack VM
+pool in Moria. The host CLI now supports `--controller openstack` and an explicit
+owned VM pool file. See [Moria VM setup and approval plan](docs/moria-vm-pool.md).
+Live VM operations are awaiting approval; Compose still uses fake control.
+Further TimesFM development is deferred. Earlier plan B/VirtualBox notes below
+are historical context; the separate school monitoring stack remains preserved.
+
 ## Local Docker setup
 
 Start Docker Desktop with Linux containers, then run from the repository root:

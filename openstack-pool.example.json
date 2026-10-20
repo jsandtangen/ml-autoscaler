@@ -1,0 +1,8 @@
+{
+  "ssh_host": "ubuntu@moriavm",
+  "identity_file": "~/.ssh/acit4410_key",
+  "openrc_path": "/home/ubuntu/moria-openrc.sh",
+  "name": "ruby-acorn",
+  "appid": "730",
+  "server_ids": ["00000000-0000-0000-0000-000000000001"]
+}
