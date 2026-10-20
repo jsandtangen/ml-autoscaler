@@ -10,8 +10,16 @@ class DecisionEngine:
         self.last_plan = None
 
     def evaluate(self, player_count):
-        desired = self.strategy.desired_instances(player_count)
+        desired = self.desired_instances(player_count)
         return self.apply_desired_instances(desired)
+
+    def desired_instances(self, player_count, current=None):
+        contextual = getattr(self.strategy, "desired_for_current", None)
+        if contextual:
+            if current is None:
+                current = self.vm_controller.running_instances()
+            return contextual(player_count, current)
+        return self.strategy.desired_instances(player_count)
 
     def apply_desired_instances(self, desired):
         current = self.vm_controller.running_instances()

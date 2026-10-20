@@ -1,0 +1,459 @@
+{
+  "uid": "ruby-acorn-course-scaling",
+  "title": "Autoscaling Monitoring",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "refresh": "15s",
+  "tags": [
+    "ruby-acorn",
+    "acit4410",
+    "pegasus"
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "links": [
+    {
+      "title": "Game Monitoring",
+      "type": "link",
+      "url": "/d/ruby-acorn-course-games",
+      "keepTime": true,
+      "includeVars": true
+    },
+    {
+      "title": "Autoscaling Monitoring",
+      "type": "link",
+      "url": "/d/ruby-acorn-course-scaling",
+      "keepTime": true,
+      "includeVars": true
+    },
+    {
+      "title": "Cost & Strategy Comparison",
+      "type": "link",
+      "url": "/d/ruby-acorn-course-costs",
+      "keepTime": true,
+      "includeVars": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "appid",
+        "label": "Game (Steam appid)",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(course_strategy, appid)",
+        "refresh": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Scope and evidence",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**ACIT4410 course prototype ? historical game replay.** Pegasus defaults to **dry-run**; actual running VMs are read from OpenStack. Pending/age/input status must be checked before interpreting graphs. Capacity (100 customer players/VM, share 0.001) and EUR 0.10/active-VM-hour are demo assumptions, not verified game capacity or Pegasus billing. Strategy comparison is hypothetical on identical latest input, not a measured head-to-head cloud run."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Desired and actual VMs",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "description": "Desired is policy target; running is actual API state even in dry-run.",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "course_desired_instances{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} desired",
+          "refId": "A"
+        },
+        {
+          "expr": "course_pegasus_running_instances{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} API running",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Observed players",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "description": "ACIT4410 historical replay.",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "acit4410_player_count{appid=~\"$appid\",source=\"acit4410_replay\"}",
+          "legendFormat": "{{appid}} players",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Successful scale events since process start",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "description": "Successful operations only. Counters reset on restart; dry-run does not create events.",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "course_scale_up_events_total{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} up",
+          "refId": "A"
+        },
+        {
+          "expr": "course_scale_down_events_total{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} down",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Dry-run and input status",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "description": "Dry-run=1 means real VM changes are disabled.",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "course_pegasus_dry_run{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} dry-run",
+          "refId": "A"
+        },
+        {
+          "expr": "course_input_available{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} input",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Pending and error VM states",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "description": "ACTIVE is not game-server readiness.",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "course_pegasus_pending_operations{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} pending",
+          "refId": "A"
+        },
+        {
+          "expr": "course_pegasus_error_instances{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} error",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "API availability and observation age",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "description": "Interpret counts alongside availability and fresh observation age.",
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "course_pegasus_state_available{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} API available",
+          "refId": "A"
+        },
+        {
+          "expr": "time()-course_pegasus_state_timestamp_seconds{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} age seconds",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Configured strategy",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "description": "Selected independently per game via TOML.",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "course_strategy{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "VM operation outcomes",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "description": "Real VM actions in this process only; earlier isolated test is not synthesized into telemetry.",
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "course_pegasus_actions_succeeded_total{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} succeeded",
+          "refId": "A"
+        },
+        {
+          "expr": "course_pegasus_actions_failed_total{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} failed",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    }
+  ]
+}

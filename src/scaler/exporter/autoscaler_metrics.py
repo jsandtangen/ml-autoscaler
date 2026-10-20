@@ -12,6 +12,7 @@ from scaler.cost import CostModel
 from scaler.strategies.capacity import CapacityPolicy
 from scaler.engine.scaling_limits import ScalingLimits
 from scaler.exporter.simulation_metrics import render_simulation_metrics
+from scaler.strategies.registry import create_strategy
 
 logger = logging.getLogger("ruby_acorn.autoscaler_metrics")
 
@@ -42,6 +43,8 @@ class GameMetrics:
     input_available: bool | None = None
     source_appid: str | None = None
     controller: tuple[str, str] | None = None
+    comparisons: dict | None = None
+    scaling_errors: int = 0
 
 
 class AutoscalerMetrics:
@@ -50,10 +53,29 @@ class AutoscalerMetrics:
         self._games: dict[str | None, GameMetrics] = {None: GameMetrics()}
         self._cost_model = CostModel()
         self._simulation_report_path = None
-        self._pegasus_provider = None
+        self._pegasus_providers = {}
 
-    def set_pegasus_provider(self, provider):
-        self._pegasus_provider = provider
+    def set_pegasus_provider(self, provider, appid=None):
+        with self._lock:
+            self._pegasus_providers[appid] = provider
+
+    def record_scaling_error(self, appid=None):
+        with self._lock:
+            state = self._games.get(appid, GameMetrics())
+            self._games[appid] = replace(state, scaling_errors=state.scaling_errors + 1)
+
+    def record_strategy_comparison(self, players, policy, limits, appid=None,
+                                   active_strategy=None, active_desired=None):
+        values = {}
+        # Only built-in stateless rules; never double-call registered plugins.
+        for name in ('reactive_capacity', 'threshold', 'aggressive', 'aggressive_capacity', 'cost_optimized'):
+            desired = (active_desired if name == active_strategy else
+                       create_strategy(name, policy).desired_instances(players))
+            target = limits.plan(desired, 0).desired_instances
+            values[name] = (target, self._cost_model.estimate_hourly(target).dynamic_cost)
+        with self._lock:
+            state = self._games.get(appid, GameMetrics())
+            self._games[appid] = replace(state, comparisons=values)
 
     def set_simulation_report(self, path):
         self._simulation_report_path = path
@@ -161,11 +183,13 @@ class AutoscalerMetrics:
         with self._lock:
             games = dict(self._games)
             cost_model = self._cost_model
+            providers = dict(self._pegasus_providers)
         if any(appid is not None for appid in games):
             games.pop(None, None)
 
         descriptions = {
             "player_count": "Player count used in the last successful decision.",
+            "scaling_errors_total": "Failed controller decision cycles since process start.",
             "running_instances": "Current number of running instances reported by the controller.",
             "desired_instances": "Desired instances from the last successful decision.",
             "scaling_action": "Last successful decision: -1 down, 0 unchanged, 1 up.",
@@ -177,6 +201,8 @@ class AutoscalerMetrics:
             "dynamic_cost": "Estimated dynamic VM cost in EUR per hour at current allocation.",
             "fixed_baseline_cost": "Estimated fixed VM baseline cost in EUR per hour per game.",
             "savings": "Estimated savings in EUR per hour: fixed baseline minus dynamic cost.",
+            "comparison_desired_instances": "Hypothetical bounded strategy target on identical latest input; no infrastructure actions.",
+            "comparison_estimated_cost": "Hypothetical strategy target EUR per hour, not actual cost or a replay.",
         }
         descriptions.update({name: description for name,description in (
             ("global_player_count", "Global players from the latest valid capacity input."),
@@ -203,7 +229,13 @@ class AutoscalerMetrics:
         )})
         samples: dict[str, list[str]] = {name: [] for name in descriptions}
         for appid, state in sorted(games.items(), key=lambda item: item[0] or ""):
+            samples["scaling_errors_total"].append(f'scaling_errors_total{self._labels(appid)} {state.scaling_errors}\n')
             labels = self._labels(appid)
+            if state.comparisons is not None:
+                for strategy, (desired, price) in state.comparisons.items():
+                    tag = self._labels(appid, strategy=strategy)
+                    samples['comparison_desired_instances'].append(f'comparison_desired_instances{tag} {desired}\n')
+                    samples['comparison_estimated_cost'].append(f'comparison_estimated_cost{tag} {price:.12g}\n')
             if state.controller is not None:
                 backend, resource = state.controller
                 tag = self._labels(appid, backend=backend, resource_type=resource)
@@ -262,12 +294,15 @@ class AutoscalerMetrics:
         ).encode("utf-8")
         if self._simulation_report_path:
             body += render_simulation_metrics(self._simulation_report_path, self._labels)
-        if self._pegasus_provider:
-            for name, value in self._pegasus_provider().items():
-                metric = f"pegasus_{name}"
-                kind = "counter" if name.endswith(("_total", "_sum", "_count")) else "gauge"
-                body += (f"# HELP {metric} Pegasus infrastructure telemetry; ACTIVE does not verify game readiness.\n"
-                         f"# TYPE {metric} {kind}\n{metric} {value:.12g}\n").encode()
+        infrastructure = {}
+        for appid, provider in providers.items():
+            for name, value in provider().items():
+                infrastructure.setdefault(name, []).append(f'pegasus_{name}{self._labels(appid)} {value:.12g}\n')
+        for name, lines in infrastructure.items():
+            metric = f'pegasus_{name}'
+            kind = 'counter' if name.endswith(('_total', '_sum', '_count')) else 'gauge'
+            body += (f'# HELP {metric} Pegasus infrastructure telemetry; ACTIVE does not verify game readiness.\n'
+                     f'# TYPE {metric} {kind}\n'+''.join(lines)).encode()
         return body
 
     def _labels(self, appid: str | None, **extra: str) -> str:

@@ -1,0 +1,304 @@
+{
+  "uid": "ruby-acorn-pegasus-scaling",
+  "title": "Ruby Acorn Pegasus \u2014 Autoscaling behavior",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": [
+    "ruby-acorn",
+    "pegasus"
+  ],
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "description": "Observed Pegasus infrastructure and source exporter counts. Player capacity, customer share and EUR costs are prototype estimates. Source counts may be historical replay. Stopped root disks remain allocated; running-cost estimates exclude storage and management/monitoring.",
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {
+          "text": "Prometheus",
+          "value": "Prometheus"
+        }
+      },
+      {
+        "name": "appid",
+        "label": "Game",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "$datasource"
+        },
+        "query": "label_values(steam_player_count{job=\"games\"}, appid)",
+        "refresh": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "730",
+          "value": "730"
+        }
+      }
+    ]
+  },
+  "links": [
+    {
+      "title": "Game demand",
+      "url": "/d/ruby-acorn-pegasus-demand",
+      "keepTime": true,
+      "includeVars": true
+    },
+    {
+      "title": "Autoscaling behavior",
+      "url": "/d/ruby-acorn-pegasus-scaling",
+      "keepTime": true,
+      "includeVars": true
+    },
+    {
+      "title": "Cost and reliability",
+      "url": "/d/ruby-acorn-pegasus-costs",
+      "keepTime": true,
+      "includeVars": true
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Desired and actual running workers",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "desired_instances{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        },
+        {
+          "refId": "B",
+          "expr": "pegasus_running_instances{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "Modeled demand and running capacity",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "customer_player_count{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        },
+        {
+          "refId": "B",
+          "expr": "pegasus_running_instances{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"} * on(appid) capacity_players_per_instance{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Successful infrastructure actions",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pegasus_actions_succeeded_total{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Modeled unserved players",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "unmet_player_capacity{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Active strategy (name label)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "strategy{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "Stopped allocated workers",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pegasus_stopped_instances{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "title": "Action latency average (seconds)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pegasus_action_latency_seconds_sum{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"} / clamp_min(pegasus_action_latency_seconds_count{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"}, 1)",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "title": "Shared fleet allocation (repeated per game; do not sum)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pegasus_fleet_allocated_instances{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

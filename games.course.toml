@@ -1,0 +1,6 @@
+# One controller per game; Pegasus shares a six-VM allocation ceiling.
+[games."730"]
+strategy = "reactive_capacity"
+
+[games."570"]
+strategy = "aggressive"

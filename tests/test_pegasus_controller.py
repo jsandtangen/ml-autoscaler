@@ -342,3 +342,66 @@ def test_stop_start_dry_run_preserves_real_states(setup):
     assert c.running_instances() == 0
     assert c.plan == [{"action": "start", "id": "1"}]
     assert len(api.calls) == 1
+
+
+@pytest.mark.parametrize('role', ['management', 'monitoring'])
+def test_protected_roles_never_become_workers(setup, role):
+    c, api, clock = setup
+    c.scale_up(1)
+    advance(clock)
+    api.instances[0].metadata['ruby_acorn_role'] = role
+    with pytest.raises(ControllerError):
+        c.scale_down(1)
+    assert api.instances[0].status == 'ACTIVE'
+    assert len(api.calls) == 1
+
+
+def test_restart_preserves_conservative_cooldown(setup):
+    c, api, clock = setup
+    c.scale_up(1)
+    cfg = c.config
+    c.close()
+    restarted = PegasusController(cfg, api, dry_run=False, clock=lambda: clock[0])
+    try:
+        restarted.scale_down(1)
+        assert restarted.running_instances() == 1
+        advance(clock)
+        restarted.scale_down(1)
+        assert restarted.running_instances() == 0
+    finally:
+        restarted.close()
+
+
+def test_multiple_games_share_limit_and_one_manager_lease(setup):
+    c, api, clock = setup
+    second = PegasusController(replace(c.config, appid='570'), api, dry_run=False,
+                               clock=lambda: clock[0])
+    try:
+        c.scale_up(3)
+        second.scale_up(3)
+        assert c.running_instances() == second.running_instances() == 3
+        advance(clock)
+        with pytest.raises(ControllerError, match='limit'):
+            second.scale_up(1)
+        assert len(api.instances) == 6
+        assert len(api.calls) == 6
+        second.scale_down(1)
+        assert c.running_instances() == 3
+        assert second.running_instances() == 2
+    finally:
+        second.close()
+
+
+def test_uncertain_create_blocks_other_games_in_shared_fleet(setup):
+    c, api, clock = setup
+    second = PegasusController(replace(c.config, appid='570'), api, dry_run=False)
+    try:
+        api.fail = True
+        with pytest.raises(ControllerError):
+            c.scale_up(1)
+        api.fail = False
+        with pytest.raises(ControllerError, match='latched'):
+            second.scale_up(1)
+        assert len(api.calls) == 1
+    finally:
+        second.close()

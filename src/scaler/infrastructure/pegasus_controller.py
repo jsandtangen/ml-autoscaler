@@ -11,6 +11,42 @@ from uuid import UUID
 from .vm_controller import ControllerError
 
 
+# One OS lock per fleet, shared only by distinct games in this process.
+_fleet_leases = {}
+_lease_mutex = threading.Lock()
+
+
+def _acquire_fleet(config):
+    path = (Path(config.state_dir)/config.project_id/f"{config.pool}.manager.lock").resolve()
+    key = str(path)
+    with _lease_mutex:
+        if key in _fleet_leases:
+            file, games = _fleet_leases[key]
+            if config.appid in games:
+                raise ControllerError("Pegasus fleet already has a manager for this game")
+            games.add(config.appid)
+            return key
+        path.parent.mkdir(parents=True, exist_ok=True)
+        file = path.open('a+b')
+        try:
+            if file.tell() == 0:
+                file.write(b'0')
+                file.flush()
+            file.seek(0)
+            import os
+            if os.name == 'nt':
+                import msvcrt
+                msvcrt.locking(file.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            file.close()
+            raise ControllerError("Pegasus fleet already has another manager") from None
+        _fleet_leases[key] = (file, {config.appid})
+        return key
+
+
 @dataclass(frozen=True)
 class PegasusConfig:
     cloud: str
@@ -60,7 +96,8 @@ def connect(config):
     """Use an external clouds.yaml; never accept a user password in this backend."""
     try:
         import openstack
-        cloud = openstack.config.get_cloud_region(cloud=config.cloud)
+        cloud = (openstack.config.get_cloud_region() if config.cloud == "env"
+                 else openstack.config.get_cloud_region(cloud=config.cloud))
         if (cloud.config.get("auth_type") != "v3applicationcredential"
                 or cloud.config.get("verify", True) is False
                 or not cloud.config.get("auth", {}).get("auth_url", "").startswith("https://")):
@@ -98,22 +135,11 @@ class PegasusController:
         directory = Path(config.state_dir)/config.project_id/f"{config.pool}-{config.appid}"
         directory.mkdir(parents=True, exist_ok=True)
         self._journal = directory/"uncertain-create.json"
-        self._lock_file = (directory/"manager.lock").open("a+b")
-        try:
-            if self._lock_file.tell() == 0:
-                self._lock_file.write(b"0")
-                self._lock_file.flush()
-            self._lock_file.seek(0)
-            import os
-            if os.name == "nt":
-                import msvcrt
-                msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(self._lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            self.close()
-            raise ControllerError("Pegasus state directory already has a manager") from None
+        self._cooldown_marker = directory/"last-action.json"
+        if self._cooldown_marker.exists():
+            # Conservatively wait a full cooldown after a process restart.
+            self._last_change = self._clock()
+        self._lease = _acquire_fleet(config)
         self.connection = connection
         try:
             self.connection = connection or connect(config)
@@ -124,9 +150,14 @@ class PegasusController:
             raise ControllerError("Pegasus authentication/project verification failed") from None
 
     def close(self):
-        if getattr(self, "_lock_file", None):
-            self._lock_file.close()
-            self._lock_file = None
+        if getattr(self, "_lease", None):
+            with _lease_mutex:
+                file, games = _fleet_leases[self._lease]
+                games.remove(self.config.appid)
+                if not games:
+                    file.close()
+                    del _fleet_leases[self._lease]
+            self._lease = None
 
     @property
     def prefix(self):
@@ -145,14 +176,30 @@ class PegasusController:
             raise ControllerError("Pegasus API request failed or timed out; inspect cloud state before retry") from None
 
     def _owned(self, server):
-        return (server.project_id is not None
+        return ((server.metadata or {}).get("ruby_acorn_role") not in ("management", "monitoring")
+                and server.project_id is not None
                 and server.project_id.replace("-", "").lower() == self.config.project_id.replace("-", "").lower()
                 and re.fullmatch(re.escape(self.prefix)+r"\d{2}", server.name or "") is not None
                 and all((server.metadata or {}).get(k) == v for k, v in self.metadata.items()))
 
+    def _fleet_owned(self, server):
+        metadata = server.metadata or {}
+        game = metadata.get('ruby_acorn_game')
+        return (metadata.get("ruby_acorn_role") not in ("management", "monitoring")
+                and isinstance(game, str)
+                and server.project_id is not None
+                and server.project_id.replace('-', '').lower() == self.config.project_id.replace('-', '').lower()
+                and metadata.get('ruby_acorn_controller') == 'pegasus'
+                and metadata.get('ruby_acorn_pool') == self.config.pool
+                and re.fullmatch(re.escape(f'ruby-acorn-pegasus-{self.config.pool}-{game}-')+r'\d{2}', server.name or '') is not None)
+
     def snapshot(self):
         try:
             servers = self._api(lambda: list(self.connection.compute.servers(details=True)))
+            fleet = [s for s in servers if self._fleet_owned(s)]
+            if any((s.name or '').startswith(f'ruby-acorn-pegasus-{self.config.pool}-')
+                   and not self._fleet_owned(s) for s in servers):
+                raise ControllerError('Pegasus fleet ownership mismatch')
             managed = []
             for server in servers:
                 if self._owned(server):
@@ -162,6 +209,8 @@ class PegasusController:
             if len({s.name for s in managed}) != len(managed):
                 raise ControllerError("Pegasus duplicate managed names; manual reconciliation required")
             self._set(state_available=1, state_timestamp_seconds=time.time(),
+                      fleet_allocated_instances=len(fleet),
+                      fleet_running_instances=sum(s.status == 'ACTIVE' and not s.task_state for s in fleet),
                       running_instances=sum(s.status == "ACTIVE" and not s.task_state for s in managed),
                       stopped_instances=sum(s.status == "SHUTOFF" and not s.task_state for s in managed),
                       pending_operations=sum(s.status not in ("ACTIVE", "SHUTOFF", "ERROR")
@@ -237,6 +286,7 @@ class PegasusController:
         self._set(pending_operations=1)
         try:
             compute = self.connection.compute
+            self._cooldown_marker.write_text(json.dumps({"attempted_at": time.time(), "action": action}), encoding="utf-8")
             if action == "create":
                 self._quota()
                 # Exclusive, flushed receipt survives both ambiguous API failure and restart.
@@ -281,14 +331,18 @@ class PegasusController:
         if not count:
             return
         servers = self.snapshot()
-        if self._journal.exists():
+        # An unobserved create in another game still consumes shared fleet budget.
+        uncertain = (Path(self.config.state_dir)/self.config.project_id).glob(
+            f"{self.config.pool}-*/uncertain-create.json")
+        if any(uncertain):
             raise ControllerError("Uncertain Pegasus creation latched; manual reconciliation required")
         if any(s.status not in ("ACTIVE", "SHUTOFF") or s.task_state for s in servers):
             raise ControllerError("Pegasus pool is transitioning or unhealthy; no new operations")
         if self._last_change is not None and self._clock()-self._last_change < self.config.cooldown_seconds:
             return
         running = sum(s.status == "ACTIVE" for s in servers)
-        if up and (running+count > self.config.maximum_instances or len(servers) > self.config.maximum_instances):
+        if up and (self.telemetry()['fleet_running_instances']+count > self.config.maximum_instances
+                   or self.telemetry()['fleet_allocated_instances'] > self.config.maximum_instances):
             raise ControllerError("Pegasus configured fleet limit exceeded")
         if not up and count > running:
             raise ControllerError("Pegasus stop count exceeds running fleet")
@@ -297,6 +351,8 @@ class PegasusController:
             self.plan.append({"action": "start" if up else "stop", "id": server.id})
         missing = count - len(self.plan)
         if missing:
+            if self.telemetry()['fleet_allocated_instances'] + missing > self.config.maximum_instances:
+                raise ControllerError('Pegasus shared fleet allocation limit reached')
             names = {s.name for s in servers}
             for slot in range(1, self.config.maximum_instances+1):
                 name = f"{self.prefix}{slot:02d}"
@@ -314,9 +370,9 @@ class PegasusController:
             fresh = self.snapshot()
             if any(s.status not in ("ACTIVE", "SHUTOFF") or s.task_state for s in fresh):
                 raise ControllerError("Pegasus pool changed during reconciliation")
-            if item["action"] == "start" and sum(s.status == "ACTIVE" for s in fresh) >= self.config.maximum_instances:
+            if item["action"] == "start" and self.telemetry()['fleet_running_instances'] >= self.config.maximum_instances:
                 raise ControllerError("Pegasus start would exceed running limit")
-            if item["action"] == "create" and (len(fresh) >= self.config.maximum_instances
+            if item["action"] == "create" and (self.telemetry()['fleet_allocated_instances'] >= self.config.maximum_instances
                     or any(s.name == item["name"] for s in fresh)):
                 raise ControllerError("Pegasus creation would exceed pool or collide")
             self._action(item["action"], by_id.get(item.get("id")), item.get("name"))

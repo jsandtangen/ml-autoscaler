@@ -1,0 +1,299 @@
+{
+  "uid": "ruby-acorn-pegasus-costs",
+  "title": "Ruby Acorn Pegasus \u2014 Cost and reliability",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": [
+    "ruby-acorn",
+    "pegasus"
+  ],
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "description": "Observed Pegasus infrastructure and source exporter counts. Player capacity, customer share and EUR costs are prototype estimates. Source counts may be historical replay. Stopped root disks remain allocated; running-cost estimates exclude storage and management/monitoring.",
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {
+          "text": "Prometheus",
+          "value": "Prometheus"
+        }
+      },
+      {
+        "name": "appid",
+        "label": "Game",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "$datasource"
+        },
+        "query": "label_values(steam_player_count{job=\"games\"}, appid)",
+        "refresh": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "730",
+          "value": "730"
+        }
+      }
+    ]
+  },
+  "links": [
+    {
+      "title": "Game demand",
+      "url": "/d/ruby-acorn-pegasus-demand",
+      "keepTime": true,
+      "includeVars": true
+    },
+    {
+      "title": "Autoscaling behavior",
+      "url": "/d/ruby-acorn-pegasus-scaling",
+      "keepTime": true,
+      "includeVars": true
+    },
+    {
+      "title": "Cost and reliability",
+      "url": "/d/ruby-acorn-pegasus-costs",
+      "keepTime": true,
+      "includeVars": true
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Estimated running cost (EUR/hour; not a bill)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "dynamic_cost{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "Estimated fixed baseline (EUR/hour)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "fixed_baseline_cost{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Estimated savings (EUR/hour)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "savings{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Hypothetical rule targets (not observed fleets)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "comparison_desired_instances{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Controller decision errors",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "scaling_errors_total{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "Infrastructure action errors",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pegasus_actions_failed_total{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "title": "Seconds since successful decision",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - last_decision_timestamp_seconds{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "title": "Exporter and cloud health",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"ruby_acorn_pegasus\"}",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        },
+        {
+          "refId": "B",
+          "expr": "pegasus_state_available{job=\"ruby_acorn_pegasus\",appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{name}} {{strategy}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

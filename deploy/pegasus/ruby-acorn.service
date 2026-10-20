@@ -1,0 +1,29 @@
+[Unit]
+Description=Ruby Acorn bounded Pegasus autoscaler
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/ruby-acorn
+Environment=AUTOSCALER_LOG_FORMAT=json
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/bin/bash /opt/ruby-acorn/deploy/pegasus/run.sh
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=360
+KillSignal=SIGTERM
+StateDirectory=ruby-acorn
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/ruby-acorn
+
+[Install]
+WantedBy=multi-user.target

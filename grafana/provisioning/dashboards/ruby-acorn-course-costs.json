@@ -1,0 +1,351 @@
+{
+  "uid": "ruby-acorn-course-costs",
+  "title": "Cost & Strategy Comparison",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "refresh": "15s",
+  "tags": [
+    "ruby-acorn",
+    "acit4410",
+    "pegasus"
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "links": [
+    {
+      "title": "Game Monitoring",
+      "type": "link",
+      "url": "/d/ruby-acorn-course-games",
+      "keepTime": true,
+      "includeVars": true
+    },
+    {
+      "title": "Autoscaling Monitoring",
+      "type": "link",
+      "url": "/d/ruby-acorn-course-scaling",
+      "keepTime": true,
+      "includeVars": true
+    },
+    {
+      "title": "Cost & Strategy Comparison",
+      "type": "link",
+      "url": "/d/ruby-acorn-course-costs",
+      "keepTime": true,
+      "includeVars": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "appid",
+        "label": "Game (Steam appid)",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(course_strategy, appid)",
+        "refresh": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Scope and evidence",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**ACIT4410 course prototype ? historical game replay.** Pegasus defaults to **dry-run**; actual running VMs are read from OpenStack. Pending/age/input status must be checked before interpreting graphs. Capacity (100 customer players/VM, share 0.001) and EUR 0.10/active-VM-hour are demo assumptions, not verified game capacity or Pegasus billing. Strategy comparison is hypothetical on identical latest input, not a measured head-to-head cloud run."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Actual allocation cost and fixed baseline",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "description": "EUR/hour estimates. Active VMs only; no stopped-disk cost or provider invoice.",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "course_dynamic_cost{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} running allocation",
+          "refId": "A"
+        },
+        {
+          "expr": "course_fixed_baseline_cost{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} fixed baseline",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Estimated hourly savings",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "description": "Fixed minus active allocation. Negative values are meaningful.",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "course_savings{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} savings EUR/hour",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Hypothetical strategy VM targets",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "description": "Same player sample and fleet bound; threshold/aggressive retain legacy prototype rules.",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "course_comparison_desired_instances{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{strategy}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Hypothetical strategy cost",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "description": "Target allocation times demo VM price; no controller changes, startup simulation or cumulative savings.",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "course_comparison_estimated_cost{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} {{strategy}} EUR/hour",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Running VMs by game",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "description": "Infrastructure observation, separate from hypothetical targets.",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "course_pegasus_running_instances{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} actual",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Source and dry-run status",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "description": "No real automatic scaling is enabled until approved.",
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "up{job=\"acit4410_games\"}",
+          "legendFormat": "source UP",
+          "refId": "A"
+        },
+        {
+          "expr": "course_pegasus_dry_run{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} dry-run",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    }
+  ]
+}

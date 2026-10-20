@@ -1,0 +1,5 @@
+[games."730"]
+strategy = "aggressive_capacity"
+
+[games."570"]
+strategy = "cost_optimized"

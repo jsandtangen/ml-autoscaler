@@ -5,8 +5,10 @@ import logging
 import math
 import os
 import time
+import signal
+import threading
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import json
 from pathlib import Path
 
@@ -15,6 +17,7 @@ from scaler.data.history import PlayerHistoryStore
 from scaler.engine.decision_engine import DecisionEngine
 from scaler.engine.scaling_limits import ScalingLimits
 from scaler.strategies.capacity import CapacityPolicy
+from scaler.strategies.demand import DemandTuning
 from scaler.exporter.autoscaler_metrics import (
     AutoscalerMetrics,
     AutoscalerMetricsConfig,
@@ -66,6 +69,7 @@ class AutoscalerConfig:
     openstack_pool: OpenStackPool | None = None
     pegasus_config: PegasusConfig | None = None
     pegasus_apply: bool = False
+    demand_tuning: DemandTuning = field(default_factory=DemandTuning)
 
 
 def parse_label_filter(value: str) -> tuple[str, str]:
@@ -144,6 +148,12 @@ def nonnegative_int(value: str) -> int:
 
 def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
     parser = argparse.ArgumentParser(description="Run the Ruby Acorn autoscaler loop.")
+    parser.add_argument("--aggressive-buffer", type=nonnegative_float, default=0.30)
+    parser.add_argument("--aggressive-spare", type=nonnegative_int, default=1)
+    parser.add_argument("--cost-buffer", type=nonnegative_float, default=0.0)
+    parser.add_argument("--scale-up-threshold", type=positive_float, default=1.10)
+    parser.add_argument("--scale-down-threshold", type=positive_float, default=0.80)
+    parser.add_argument("--downscale-seconds", type=nonnegative_float, default=180)
     parser.add_argument("--player-share", type=nonnegative_float, default=os.getenv("AUTOSCALER_PLAYER_SHARE", "0.001"))
     parser.add_argument("--players-per-instance", type=positive_int, default=os.getenv("AUTOSCALER_PLAYERS_PER_INSTANCE", "100"))
     parser.add_argument("--headroom-fraction", type=nonnegative_float, default=os.getenv("AUTOSCALER_HEADROOM_FRACTION", "0.10"))
@@ -251,6 +261,11 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
     )
 
     args = parser.parse_args(argv)
+    try:
+        tuning = DemandTuning(args.aggressive_buffer, args.aggressive_spare, args.cost_buffer,
+                              args.scale_up_threshold, args.scale_down_threshold, args.downscale_seconds)
+    except ValueError as error:
+        parser.error(str(error))
     pool = None
     pegasus = None
     if args.pegasus_apply and args.controller != "pegasus":
@@ -296,8 +311,10 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         parser.error(f"Invalid games configuration: {error}")
     if pool and (games or label_filters.get("appid") != pool.appid):
         parser.error("OpenStack supports one game; --label appid must match the pool")
-    if pegasus and (games or label_filters.get("appid") != pegasus.appid):
-        parser.error("Pegasus supports one game; --label appid must match configuration")
+    if pegasus and not games and label_filters.get("appid") != pegasus.appid:
+        parser.error("Pegasus --label appid must match configuration")
+    if pegasus and games and policy.minimum_instances * len(games) > maximum:
+        parser.error("Per-game minimums exceed the shared Pegasus fleet limit")
 
     return AutoscalerConfig(
         prometheus_url=args.prometheus_url,
@@ -320,6 +337,7 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         simulation_report_path=args.simulation_report_path,
         openstack_pool=pool,
         pegasus_config=pegasus, pegasus_apply=args.pegasus_apply,
+        demand_tuning=tuning,
     )
 
 
@@ -340,10 +358,11 @@ def build_engine(
         controller = OpenStackController(pool)
     elif config.controller_backend == "pegasus":
         pc = config.pegasus_config
-        if (pc is None or config.games or game != pc.appid
+        if (pc is None or (not config.games and game != pc.appid)
+                or (config.games and game not in {g.appid for g in config.games})
                 or config.max_instances > pc.maximum_instances):
-            raise ValueError("Pegasus requires a matching single-game bounded configuration")
-        controller = PegasusController(pc, dry_run=not config.pegasus_apply)
+            raise ValueError("Pegasus requires a matching game and bounded fleet configuration")
+        controller = PegasusController(replace(pc, appid=game), dry_run=not config.pegasus_apply)
     else:
         raise ValueError(f"Unknown controller: {config.controller_backend}")
     policy = config.capacity_policy if config else CapacityPolicy()
@@ -351,7 +370,7 @@ def build_engine(
     if config and config.controller_backend == "docker":
         maximum = min(maximum, config.docker_max_instances)
     limits = ScalingLimits(policy.minimum_instances, maximum, config.max_scaling_change if config else 2)
-    return DecisionEngine(create_strategy(strategy_name, policy), controller, limits, policy)
+    return DecisionEngine(create_strategy(strategy_name, policy, config.demand_tuning if config else None), controller, limits, policy)
 
 
 def evaluate_once(
@@ -367,10 +386,12 @@ def evaluate_once(
     if history:
         history.record(player_count, appid=metrics_appid or label_filters.get("appid"))
     current_instances = engine.vm_controller.running_instances()
-    desired_instances = engine.strategy.desired_instances(player_count)
+    desired_instances = engine.desired_instances(player_count, current_instances)
     if isinstance(engine.vm_controller, PegasusController):
         engine.vm_controller.record_target(engine.limits.plan(desired_instances, current_instances).desired_instances)
     if metrics and engine.capacity_policy is not None:
+        metrics.record_strategy_comparison(player_count, engine.capacity_policy, engine.limits,
+                                           metrics_appid, strategy_name(engine.strategy), desired_instances)
         metrics.record_capacity_demand(player_count, engine.capacity_policy,
                                        engine.limits, desired_instances, current_instances, metrics_appid)
     running_instances = engine.apply_desired_instances(desired_instances)
@@ -417,13 +438,19 @@ def evaluate_once(
     return running_instances
 
 
-def run_loop(
+def _run_loop(
     config: AutoscalerConfig,
     client: GameDataClient | None = None,
     engine: DecisionEngine | None = None,
     metrics: AutoscalerMetrics | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    controllers: list | None = None,
+    stop_requested: Callable[[], bool] = lambda: False,
 ) -> None:
+    def tracked(game_engine):
+        if isinstance(game_engine.vm_controller, PegasusController):
+            controllers.append(game_engine.vm_controller)
+        return game_engine
     client = client or GameDataClient(
         config.prometheus_url,
         metric_name=config.metric_name,
@@ -439,22 +466,22 @@ def run_loop(
         evaluations = []
         for game in config.games:
             labels = {**config.label_filters, "appid": game.appid}
-            evaluations.append((game.appid, labels, build_engine(game.strategy_name, config, game.appid)))
+            evaluations.append((game.appid, labels, tracked(build_engine(game.strategy_name, config, game.appid))))
             metrics.set_running_instances(0, appid=game.appid)
             logger.info(
                 "Configured game appid=%s strategy=%s", game.appid, game.strategy_name
             )
     else:
         evaluations = [
-            (None, config.label_filters, engine or build_engine(
+            (None, config.label_filters, tracked(engine or build_engine(
                 config.strategy_name, config, config.label_filters.get("appid", "default")
-            ))
+            )))
         ]
 
     for appid, labels, game_engine in evaluations:
         metrics.set_controller(config.controller_backend, appid)
         if isinstance(game_engine.vm_controller, PegasusController):
-            metrics.set_pegasus_provider(game_engine.vm_controller.telemetry)
+            metrics.set_pegasus_provider(game_engine.vm_controller.telemetry, appid)
         metrics.set_source_appid(labels.get("appid"), appid)
         metrics.set_running_instances(game_engine.vm_controller.running_instances(), appid=appid)
         metrics.set_strategy(strategy_name(game_engine.strategy), appid=appid)
@@ -478,19 +505,30 @@ def run_loop(
 
     while True:
         for appid, labels, game_engine in evaluations:
+            if stop_requested():
+                return
             try:
                 evaluate_once(
                     client, game_engine, labels, metrics, metrics_appid=appid, history=history,
                     shadow_decisions_dir=config.shadow_decisions_dir,
                 )
             except GameDataClientError as error:
+                reset = getattr(game_engine.strategy, "reset_observations", None)
+                if reset:
+                    reset()
                 metrics.set_input_available(False, appid)
+                if isinstance(game_engine.vm_controller, PegasusController):
+                    try:
+                        metrics.set_running_instances(game_engine.vm_controller.running_instances(), appid)
+                    except ControllerError:
+                        pass  # Infrastructure availability/age remain explicit in telemetry.
                 logger.warning(
                     "Skipping autoscaler evaluation: %s appid=%s",
                     error,
                     labels.get("appid", "unspecified"),
                 )
             except ControllerError as error:
+                metrics.record_scaling_error(appid)
                 logger.error("Scaling failed appid=%s: %s", labels.get("appid", "unspecified"), error)
                 try:
                     metrics.set_running_instances(game_engine.vm_controller.running_instances(), appid=appid)
@@ -505,19 +543,49 @@ def run_loop(
         sleep(config.interval_seconds)
 
 
+def run_loop(config, client=None, engine=None, metrics=None, sleep=time.sleep,
+             stop_requested=lambda: False):
+    controllers = []
+    try:
+        return _run_loop(config, client, engine, metrics, sleep, controllers, stop_requested)
+    finally:
+        for controller in reversed(controllers):
+            controller.close()
+            close = getattr(controller.connection, 'close', None)
+            if close:
+                close()
+
+
+class JsonFormatter(logging.Formatter):
+    def format(self, record):
+        return json.dumps({"timestamp": record.created, "level": record.levelname,
+                           "logger": record.name, "message": record.getMessage()})
+
+
 def configure_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    if os.getenv("AUTOSCALER_LOG_FORMAT") == "json":
+        for handler in logging.getLogger().handlers:
+            handler.setFormatter(JsonFormatter())
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     configure_logging()
     config = load_config(argv)
+    stopped = threading.Event()
+    def stop(signum, frame):
+        stopped.set()
+    def interruptible_sleep(seconds):
+        if stopped.wait(seconds):
+            raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
 
     try:
-        run_loop(config)
+        run_loop(config, sleep=interruptible_sleep, stop_requested=stopped.is_set)
     except KeyboardInterrupt:
         logger.info("Autoscaler loop stopped")
     except (ControllerError, ValueError) as error:

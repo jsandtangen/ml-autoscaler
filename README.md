@@ -2,12 +2,23 @@
 
 Early Python autoscaler prototype for game player counts.
 
+Pegasus prototype work (2026-10-20): two configurable capacity strategies,
+bounded worker reconciliation, a systemd deployment and three Pegasus dashboards
+are prepared. Code was installed and tested on `ruby-acorn-management-02`, and
+the monitoring scrape configuration passed promtool. VPN access was then lost
+during the demo launch: **the worker lifecycle result, service activation and
+Grafana dashboards remain unverified**. Inspect cloud state and demo receipts
+before retrying any operation. See [deployment, safeguards and verification
+status](docs/pegasus-prototype-deployment.md). This supersedes the historical
+Moria-priority notes below; existing Moria resources were preserved.
+
 Pegasus integration (2026-10-20): the optional `--controller pegasus` backend
 uses OpenStack SDK and defaults to **dry-run**. It supports owned VM creation,
 start/stop, quota checks and separate infrastructure telemetry, with a six-VM
 demo ceiling. See [Pegasus setup and staged verification](docs/pegasus.md).
-No authenticated Pegasus VM test or deployment has been performed. The existing
-Moria controller and Compose configuration remain separate.
+Earlier dedicated Pegasus VM testing is documented in
+[the one-VM result](docs/pegasus-one-vm-result.md). The new `course` pool's current
+demo result must be checked separately. Moria and local Compose remain separate.
 
 Current priority (2026-10-20): real start/stop control of a fixed OpenStack VM
 pool in Moria. The host CLI now supports `--controller openstack` and an explicit

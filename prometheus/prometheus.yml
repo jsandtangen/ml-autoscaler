@@ -4,6 +4,33 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
+  # Read-only federation of the existing ACIT4410 Prometheus over a local
+  # SSH tunnel. Preserve source timestamps so stale inputs cannot look fresh.
+  - job_name: acit4410_games
+    metrics_path: /federate
+    honor_timestamps: true
+    params:
+      'match[]': ['steam_player_count{appid=~"730|570"}']
+    static_configs:
+      - targets: ["host.docker.internal:19090"]
+        labels:
+          source: acit4410_replay
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: steam_player_count
+        target_label: __name__
+        replacement: acit4410_player_count
+
+  # The host Pegasus process remains dry-run until explicitly approved.
+  - job_name: pegasus_autoscaler
+    static_configs:
+      - targets: ["host.docker.internal:8003"]
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: "(.+)"
+        target_label: __name__
+        replacement: "course_${1}"
+
   - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]

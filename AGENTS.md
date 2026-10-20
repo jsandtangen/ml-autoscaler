@@ -18,6 +18,100 @@ precedence over this guide.
 
 ## Project purpose and current status
 
+Pegasus end-to-end implementation attempt (2026-10-20, supersedes older
+plan-only/deployment restrictions within this task): user explicitly requested
+implementation, deployment, continuous bounded scaling and a deterministic
+one-to-two-worker live test. Preserve all four existing VMs and all credentials.
+Existing ruby-manager / ruby-monitoring SSH aliases work OUTSIDE the sandbox;
+inside sandbox their protected config is invisible. Management-02 UUID
+53e79431-bd91-43d4-8686-dffee4f38063, fixed 192.168.45.220 / FIP 10.196.245.39;
+monitoring-01 UUID 0f539284-acf1-439b-accd-8b51dddeb329, fixed 192.168.47.129.
+Both were ACTIVE; old management-01 and test VM also ACTIVE and NOT adopted.
+Read-only usage was 4/10 VMs, 7/12 vCPU, 14336/24576 MiB RAM, Cinder 2 volumes/
+100 GiB. Credential token roles reader/member; Identity list-role-assignments
+403 does not mean Compute is denied. Fresh worker preflight passed using existing
+guest OpenRC loaded in memory; no credential/key copied or printed.
+
+Source code installed in new /opt/ruby-acorn on management-02, isolated venv;
+python3.12-venv installed. Tests then passed 351 with one Windows-only skip
+(352 local at installation; final local suite 357 passed). More local changes were added after connection
+loss; redeploy latest source before normal startup. New strategies are
+aggressive_capacity / cost_optimized; legacy aggressive semantics preserved.
+New deploy/pegasus files specify course pool max TWO allocated workers total,
+ONE running per game, games 730/570, smallest aem.1c2r.50g, no worker FIPs,
+no deletion/SG/network changes. Per-game shared fill lock, metadata/project/name
+ownership, role exclusions, uncertain-create receipt and restart cooldown protect
+mutations. Existing management/monitoring must never receive worker metadata.
+
+Monitoring job ruby_acorn_pegasus -> 192.168.45.220:8001 was added, promtool
+passed, Prometheus SIGHUP reload succeeded, original TSDB/containers preserved.
+New dashboard JSON was copied to existing provider, but first read-only Grafana
+DB query returned NO dashboards (even original): provisioning needs diagnosis.
+Do NOT claim dashboards working or discard data to fix this. Config snapshot
+prometheus.yml.before-ruby-acorn-* is on monitoring host, not downloaded.
+
+Critical interruption: VPN dropped during invocation of deterministic demo.
+First direct script invocation failed importing main BEFORE any operations;
+the corrected `python -m scripts.demo_pegasus_scaling` dry-run then live sequence
+was interrupted by SSH connection reset. The actual point reached is UNKNOWN.
+No new worker UUID or completed lifecycle was verified. No systemd unit was
+installed/enabled/started. Read /var/lib/ruby-acorn/demo-dry-run.json,
+demo-live.json, /var/lib/ruby-acorn/pegasus/**/uncertain-create.json, cloud inventory
+and process identity FIRST after reconnect; do not rerun create, remove receipts,
+or adopt an old VM. No evidence that any VM failed is available. User confirmed
+VPN unavailable for remainder of day; remote completion blocked by access.
+See docs/pegasus-prototype-deployment.md for deployment/recovery and honest status.
+
+Approved Pegasus management VM creation completed 2026-10-20. User approved
+one dedicated 2 vCPU/4 GiB/50 GiB VM plus guest connectivity/resource probes,
+but NO full system install, automatic scaling or existing VM/network/SG changes.
+ruby-acorn-management-01 UUID e92fea6d-7f8b-405a-ab12-fd00ea40c232, fixed IP
+192.168.44.243 on ACIT4410 is ACTIVE, no task, Ubuntu 24.04, aem.2c4r.50g,
+existing ruby-acorn-key and unchanged default SG. Metadata is only
+ruby_acorn_role=management / ruby_acorn_project=ruby-acorn; NEVER include this
+VM in the scaling pool or add pool/game/controller ownership metadata.
+Cloud-init completed with a no-secrets stdlib probe. From the guest: Identity,
+Compute, Image and Network HTTPS responded 200/300, Volume v3 401 (reachable,
+unauthenticated). Guest API authentication is NOT tested; no credentials were
+copied there. Source /health and /metrics at 172.31.255.1:1080 both failed with
+URLError; underlying route/filter cause is not established. Guest SSH TCP22
+listens, but workstation TCP and strict SSH both timed out before handshake.
+No ports were opened. Stop deployment here until official source routing and
+separately approved restricted admin access are resolved. Do not troubleshoot
+or depend on Moria. No change to any old VM, shared network or SG rule.
+Guest boot resource probe: 2 CPUs, 3.82 GiB visible RAM, 3.39 GiB available,
+47.39 GiB root filesystem with 45.76 GiB free. Final project use 2/10 VMs,
+3/12 vCPU, 6144/24576 MiB RAM, 2/10 ports, 0 Cinder volumes/GiB.
+One console-read ConnectTimeout recovered with a read-only retry, never a new
+create. Last final API verification 18:17:32 Europe/Oslo. Test VM remains ACTIVE.
+See docs/pegasus-management-preflight.md and ignored management-create-receipt.json.
+
+Latest architecture decision (2026-10-20): user requires Pegasus to replace
+Moria as the whole Ruby Acorn runtime (Prometheus, Grafana, DecisionEngine),
+not just a remote backend. Stop Moria SSH/Tailscale/VPN troubleshooting. Do not
+deploy the previously drafted Windows launcher/Moria federation tunnel as the
+target solution. Existing uncommitted integration/dashboard drafts are preserved.
+This turn authorizes feasibility/plan only: NO Pegasus VM, SG, port/routing or
+credential deployment changes without approval; preserve all Moria resources.
+Read-only Pegasus API verification after user re-enabled OsloMet VPN confirmed
+1/10 instances, 1/12 vCPU, 2048/24576 MiB RAM, ports 1/10, floating IP 0/5,
+network/subnet/router quotas 0, SG 1/10 and rules 4/100. Cinder 0/10 volumes and
+0/300 GiB, snapshot quota 0. Flavor root disks are separate: test VM has no
+Cinder attachment. Proposed drift VM aem.2c4r.50g plus six pool aem.1c2r.50g
+(existing test VM included) totals 7 VMs / 8 vCPU / 16 GiB RAM / 350 GiB
+flavor root disk / 7 ports for single-NIC design. This is quota-feasible but
+Nova physical disk and guest routing are unverified. Never mistake 350 GiB
+root disks for verified Cinder capacity; seven Cinder-backed 50 GiB boots would
+exceed 300 GiB. Shared ACIT4410 subnet 192.168.44.0/22 has DHCP/gateway
+192.168.44.1, no advertised host routes. Guest console shows cloud-init complete,
+but no source probe. TCP22 from workstation timed out; no guest shell or SG
+change was attempted. Access to 172.31.255.1:1080 AND OpenStack service endpoints
+from a Pegasus guest is NOT VERIFIED. First approved management VM must include
+nonsecret connectivity probes before full deployment. Credentials must not be
+automatically copied; arrange approved private guest configuration later.
+See docs/pegasus-migration-plan.md for phased plan and honest five-requirement
+matrix. No new runtime rollouts or real automatic scaling were activated.
+
 Pegasus approved real VM test completed 2026-10-20. User explicitly approved
 create -> ACTIVE -> SHUTOFF -> ACTIVE, final ACTIVE, no continuous scaling.
 Dedicated ruby-acorn-pegasus-vm-test-730-01 now has UUID

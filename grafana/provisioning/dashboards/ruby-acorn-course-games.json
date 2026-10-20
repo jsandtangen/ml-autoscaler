@@ -1,0 +1,341 @@
+{
+  "uid": "ruby-acorn-course-games",
+  "title": "Game Monitoring",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "refresh": "15s",
+  "tags": [
+    "ruby-acorn",
+    "acit4410",
+    "pegasus"
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "links": [
+    {
+      "title": "Game Monitoring",
+      "type": "link",
+      "url": "/d/ruby-acorn-course-games",
+      "keepTime": true,
+      "includeVars": true
+    },
+    {
+      "title": "Autoscaling Monitoring",
+      "type": "link",
+      "url": "/d/ruby-acorn-course-scaling",
+      "keepTime": true,
+      "includeVars": true
+    },
+    {
+      "title": "Cost & Strategy Comparison",
+      "type": "link",
+      "url": "/d/ruby-acorn-course-costs",
+      "keepTime": true,
+      "includeVars": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "appid",
+        "label": "Game (Steam appid)",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(course_strategy, appid)",
+        "refresh": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Scope and evidence",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**ACIT4410 course prototype ? historical game replay.** Pegasus defaults to **dry-run**; actual running VMs are read from OpenStack. Pending/age/input status must be checked before interpreting graphs. Capacity (100 customer players/VM, share 0.001) and EUR 0.10/active-VM-hour are demo assumptions, not verified game capacity or Pegasus billing. Strategy comparison is hypothetical on identical latest input, not a measured head-to-head cloud run."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Observed players (course replay)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "description": "Source counts; does not claim live 2026 players.",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "acit4410_player_count{appid=~\"$appid\",source=\"acit4410_replay\"}",
+          "legendFormat": "{{appid}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Player input used by engine",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "description": "Only successful decision snapshots.",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "course_player_count{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} used",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Course federation UP",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "description": "UP alone does not prove fresh player samples.",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "up{job=\"acit4410_games\"}",
+          "legendFormat": "federation",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Source sample age",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "description": "Source scrape timestamps preserved by federation.",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "time() - timestamp(acit4410_player_count{appid=~\"$appid\",source=\"acit4410_replay\"})",
+          "legendFormat": "{{appid}} age",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Input available",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "description": "0 means missing/stale/failed source; never substituted with zero players.",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "course_input_available{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} available",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Modeled customer players",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "description": "Global source multiplied by demo customer share.",
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "course_customer_player_count{appid=~\"$appid\"}",
+          "legendFormat": "{{appid}} modeled",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    }
+  ]
+}

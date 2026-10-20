@@ -294,3 +294,12 @@ def test_run_loop_once_does_not_sleep():
     )
 
     assert slept == []
+
+
+def test_shutdown_does_not_begin_another_game_evaluation():
+    client = FakeGameDataClient([150])
+    config = AutoscalerConfig(prometheus_url='http://unused', interval_seconds=1,
+        metric_name='steam_player_count', label_filters={}, run_once=True)
+    engine = DecisionEngine(ThresholdStrategy(), FakeVMController())
+    run_loop(config, client=client, engine=engine, stop_requested=lambda: True)
+    assert engine.vm_controller.running_instances() == 0

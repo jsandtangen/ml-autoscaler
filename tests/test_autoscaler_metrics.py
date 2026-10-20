@@ -36,6 +36,17 @@ def test_autoscaler_metrics_render_running_instances():
     assert "running_instances 4" in body
 
 
+def test_scaling_error_counter_is_per_game():
+    metrics = AutoscalerMetrics()
+    metrics.record_scaling_error('730')
+    metrics.record_scaling_error('730')
+    metrics.set_strategy('cost_optimized', '570')
+    body = metrics.render().decode()
+    assert '# TYPE scaling_errors_total counter' in body
+    assert 'scaling_errors_total{appid="730"} 2' in body
+    assert 'scaling_errors_total{appid="570"} 0' in body
+
+
 def test_per_game_metrics_are_separate_series():
     metrics = AutoscalerMetrics()
     metrics.set_running_instances(5, appid="730")
@@ -60,7 +71,8 @@ def test_no_decision_values_before_successful_evaluation():
     assert 'strategy{appid="730",name="aggressive"} 1' in body
     assert 'running_instances{appid="730"} 0' in body
     samples = [line for line in body.splitlines() if not line.startswith("#")]
-    assert len(samples) == 7
+    assert len(samples) == 8
+    assert 'scaling_errors_total{appid="730"} 0' in body
     assert 'scale_up_events_total{appid="730"} 0' in body
     assert 'scale_down_events_total{appid="730"} 0' in body
 

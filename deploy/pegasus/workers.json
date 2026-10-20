@@ -1,0 +1,15 @@
+{
+  "cloud": "env",
+  "project_id": "234f15222c5e4396851d2713697893b1",
+  "pool": "course",
+  "appid": "730",
+  "image_id": "414d4efa-e67d-43cc-b484-3d88817bcec1",
+  "flavor_id": "2db2d811-a566-4438-b7ad-64735413c2db",
+  "network_id": "374240bf-b8c4-45cd-b377-e32a247beb43",
+  "key_name": "ruby-acorn-laptop",
+  "security_groups": ["default"],
+  "maximum_instances": 2,
+  "operation_timeout": 300,
+  "cooldown_seconds": 120,
+  "state_dir": "/var/lib/ruby-acorn/pegasus"
+}
