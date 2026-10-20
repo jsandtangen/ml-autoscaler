@@ -18,6 +18,22 @@ precedence over this guide.
 
 ## Project purpose and current status
 
+Latest read-only audit (2026-10-20): user asked which tutorial VMs are still
+needed and how to expand the pool; no cleanup/reuse was authorized or performed.
+See docs/moria-vm-audit.md. All five known VM identities/statuses remain as before.
+MORIAVM is the required management/Tailscale/OpenStack route; keep it. The
+separate stopped moiravm is not that management VM, and its root disk remains
+uninspected. internalvm runs a FastAPI exercise on port 10080; no Docker volumes
+or mounts, Git working tree clean. No Ruby Acorn dependency was found, but other
+course/external use is not ruled out. prometheus-vm still runs all five school
+monitoring services with persistent volumes; preserve it. Other tutorial VM
+names were absent from this authenticated project only; manager is a keypair.
+Current configured VM totals: 5 instances, 6 vCPU, 8192 MiB; quotas 5/10/10240.
+Two additional acit-small VMs would total 7/8/10240, so requesting instance quota
+7 is the least disruptive proposed route to a three-VM pool. No quota request
+was sent. Reuse of internalvm or moiravm needs explicit approval and preservation
+planning. More VMs alone may still saturate under the current demo demand policy.
+
 Latest priority (2026-10-20, supersedes the earlier plan B decision for scaling):
 the user explicitly requested real VM control in Moria and confirmed that
 start/stop of a fixed pool satisfies the course requirement. Defer further
