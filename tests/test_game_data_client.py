@@ -133,3 +133,36 @@ def test_get_player_counts_raises_on_prometheus_error_status():
 
     with pytest.raises(PrometheusQueryError, match="bad_data"):
         client.get_player_counts()
+
+
+@pytest.mark.parametrize('reject_zero', [False, True])
+def test_zero_source_guard_is_explicit_and_preserves_default_zero_support(reject_zero):
+    session=FakeSession(FakeResponse({'status':'success','data':{'result':[
+        {'metric':{'appid':'730'},'value':[123,'0']}]}}))
+    client=GameDataClient('http://unused',session=session,reject_zero_player_counts=reject_zero)
+    if reject_zero:
+        with pytest.raises(PlayerCountNotFoundError,match='Zero count rejected'):
+            client.get_player_count({'appid':'730'})
+    else:
+        assert client.get_player_count({'appid':'730'})==0
+
+
+def test_replay_zero_guard_holds_existing_capacity_and_last_decision(monkeypatch):
+    from main import load_config,run_loop,build_engine
+    from scaler.exporter.autoscaler_metrics import AutoscalerMetrics
+    cfg=load_config(['--once','--minimum-instances','0','--reject-zero-player-counts'])
+    assert cfg.reject_zero_player_counts
+    engine=build_engine(config=cfg)
+    engine.evaluate(100000)
+    before=engine.vm_controller.running_instances()
+    metrics=AutoscalerMetrics()
+    def factory(*args,**kwargs):
+        assert kwargs['reject_zero_player_counts'] is True
+        return GameDataClient('http://unused',session=FakeSession(FakeResponse({
+            'status':'success','data':{'result':[{'metric':{},'value':[123,'0']}]}})),
+            reject_zero_player_counts=True)
+    monkeypatch.setattr('main.GameDataClient',factory)
+    run_loop(cfg,engine=engine,metrics=metrics)
+    assert engine.vm_controller.running_instances()==before>0
+    assert 'input_available 0\n' in metrics.render().decode()
+    assert '\nlast_decision_timestamp_seconds ' not in metrics.render().decode()

@@ -18,6 +18,55 @@ precedence over this guide.
 
 ## Project purpose and current status
 
+Verified Pegasus continuation (2026-10-21; interruption/plan-only notes below
+are historical): user restored VPN and explicitly requested completion. The
+recovered original demo-live.json had status=verified: created worker
+65063f7c-5e6f-4c50-9e34-c96c484ee4e1 (course/730), reached ACTIVE then SHUTOFF,
+two successful actions, zero API errors, four protected VMs unchanged. No repeat
+create or journal clearing was needed. Normal service reused that UUID and
+created course/570 worker 97d89bab-df3e-48ab-bf4d-b5f9f4dd7946. Both were ACTIVE.
+The four pre-existing VMs remain outside course ownership and unchanged.
+
+Latest source installed on management-02 under /opt/ruby-acorn, isolated venv.
+ruby-acorn.service enabled/active, restart policy verified after controlled
+SIGKILL (30s automatic restart), graceful restart verified, duplicate-manager
+attempt blocked. No whole-VM reboot was performed. Persistent state remains
+/var/lib/ruby-acorn; one manager host/state-directory per pool. Runtime stays
+TWO allocated course workers total and ONE running per game, no delete/FIPs or
+network/SG mutation. Local tests: 361 passed. Guest: 360 passed, one Windows-only
+skip. Four SDK deprecation warnings. Finalized tiny dry-run plan reset regression.
+
+Monitoring preserved existing Swarm containers/TSDB/Grafana configuration.
+Grafana API confirms all THREE ruby-acorn-pegasus-* dashboards; 50 panel checks
+across games 730/570 passed both directly and through datasource proxy.
+The earlier empty legacy dashboard table was a false negative from Grafana 13
+unified storage, NOT a provisioning fault. verify_monitoring.py now uses the API,
+existing service credentials in memory only, and checks decision/input freshness.
+Browser visual QA was stopped by Computer Use because Windows browser URL could
+not be determined; do not claim visual rendering passed. Localhost SSH tunnel
+ports 13000 (Grafana) / 19090 (Prometheus) were opened; consult ignored receipt
+and verify its process rather than assuming it survived. No public ports opened.
+
+Source /health at 10.196.242.62 confirmed historical replay (362 games) with gzip
+JSON, not current Steam totals. Dashboards explicitly label replay/estimates.
+Course run.sh enables --reject-zero-player-counts for previously observed invalid
+zero periods; missing/stale/invalid/zero source data HOLD capacity and reset the
+cost strategy downscale timer. Default client still accepts valid zero, and
+deterministic demo zero still exercises actual stop. No game-server readiness,
+real player capacity, actual billing/savings or current-2026 Steam demand proven.
+See docs/pegasus-prototype-deployment.md and ignored data/pegasus/completion-20261021/.
+
+Final independent read at 10:38:12 Europe/Oslo on 2026-10-21 passed all checks:
+both course workers ACTIVE/no task, four original VMs unchanged, no uncertain
+create receipt, service enabled/active (then PID 56459; verify fresh identity),
+both inputs available/fresh. Usage 6/10 VMs, 9/12 vCPU, 18432/24576 MiB RAM;
+Cinder unchanged at two volumes/100 GiB; new workers have no attached Cinder
+volume or floating IP. All five Prometheus targets UP. Evidence files:
+final-verification.json, recovery-test.json, monitoring-final.json and original
+demo-live-original.json in the ignored completion directory. Local SSH tunnel
+health verified Grafana database=ok. Keep service and bounded workers running;
+no cleanup or enlargement is implied by task completion.
+
 Pegasus end-to-end implementation attempt (2026-10-20, supersedes older
 plan-only/deployment restrictions within this task): user explicitly requested
 implementation, deployment, continuous bounded scaling and a deterministic

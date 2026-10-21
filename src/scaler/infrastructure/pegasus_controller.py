@@ -243,6 +243,7 @@ class PegasusController:
             return dict(self._metrics)
 
     def record_target(self, desired):
+        self.plan = []  # A no-op cycle must not report the preceding cycle's plan.
         self._set(desired_instances=desired)
 
     def running_instances(self):

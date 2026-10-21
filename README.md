@@ -2,25 +2,28 @@
 
 Early Python autoscaler prototype for game player counts.
 
-Pegasus prototype work (2026-10-20): two configurable capacity strategies,
-bounded worker reconciliation, a systemd deployment and three Pegasus dashboards
-are prepared. Code was installed and tested on `ruby-acorn-management-02`, and
-the monitoring scrape configuration passed promtool. VPN access was then lost
-during the demo launch: **the worker lifecycle result, service activation and
-Grafana dashboards remain unverified**. Inspect cloud state and demo receipts
-before retrying any operation. See [deployment, safeguards and verification
-status](docs/pegasus-prototype-deployment.md). This supersedes the historical
-Moria-priority notes below; existing Moria resources were preserved.
+Pegasus prototype (2026-10-21): the autoscaler runs autonomously as an enabled
+systemd service on `ruby-acorn-management-02`. Games 730/570 select
+`aggressive_capacity` / `cost_optimized`; the fleet is bounded to two allocated
+workers, one per game. The original controlled create -> ACTIVE -> SHUTOFF
+demo was recovered and verified, and normal operation reused that worker and
+created the second one. Existing VMs and monitoring data were preserved.
+All three Grafana dashboards and 50 panel checks across both games passed via
+Prometheus and Grafana's datasource API. The source is **historical game replay**,
+not current Steam totals; capacity and costs are estimates. See [deployment,
+safeguards and evidence](docs/pegasus-prototype-deployment.md). This supersedes
+the historical Moria-priority notes below.
 
 Pegasus integration (2026-10-20): the optional `--controller pegasus` backend
 uses OpenStack SDK and defaults to **dry-run**. It supports owned VM creation,
 start/stop, quota checks and separate infrastructure telemetry, with a six-VM
 demo ceiling. See [Pegasus setup and staged verification](docs/pegasus.md).
 Earlier dedicated Pegasus VM testing is documented in
-[the one-VM result](docs/pegasus-one-vm-result.md). The new `course` pool's current
-demo result must be checked separately. Moria and local Compose remain separate.
+[the one-VM result](docs/pegasus-one-vm-result.md). The verified `course`-pool demo
+and autonomous deployment are documented in the deployment guide above.
+Moria and local Compose remain separate.
 
-Current priority (2026-10-20): real start/stop control of a fixed OpenStack VM
+Historical Moria setup (2026-10-20): real start/stop control of a fixed OpenStack VM
 pool in Moria. The host CLI now supports `--controller openstack` and an explicit
 owned VM pool file. See [Moria VM setup and approval plan](docs/moria-vm-pool.md).
 The approved real-VM demo passed `0 -> 1 -> 0` on 2026-10-20. The dedicated

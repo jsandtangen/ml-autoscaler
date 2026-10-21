@@ -34,6 +34,7 @@ class GameDataClient:
         session=None,
         metric_name: str = "steam_player_count",
         max_sample_age_seconds: int | None = None,
+        reject_zero_player_counts: bool = False,
     ):
         self.prometheus_url = prometheus_url.rstrip("/")
         self.timeout = timeout
@@ -42,6 +43,7 @@ class GameDataClient:
         if max_sample_age_seconds is not None and (type(max_sample_age_seconds) is not int or max_sample_age_seconds < 1):
             raise ValueError("Maximum sample age must be a positive integer")
         self.max_sample_age_seconds = max_sample_age_seconds
+        self.reject_zero_player_counts = reject_zero_player_counts
 
     def get_player_counts(
         self,
@@ -66,7 +68,10 @@ class GameDataClient:
                 f"Expected exactly one player count series, got {len(samples)}"
             )
 
-        return samples[0].player_count
+        count = samples[0].player_count
+        if self.reject_zero_player_counts and count == 0:
+            raise PlayerCountNotFoundError("Zero count rejected for a source with known invalid zero periods")
+        return count
 
     def _build_query(self, label_filters: dict[str, str] | None) -> str:
         if not label_filters:

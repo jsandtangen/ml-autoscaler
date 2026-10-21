@@ -43,7 +43,7 @@ def build():
         doc = {'uid': uid, 'title': 'Ruby Acorn Pegasus — '+title, 'schemaVersion': 39,
                'version': 1, 'tags': ['ruby-acorn', 'pegasus'], 'refresh': '15s',
                'time': {'from': 'now-1h', 'to': 'now'}, 'timezone': 'browser',
-               'description': 'Observed Pegasus infrastructure and source exporter counts. Player capacity, customer share and EUR costs are prototype estimates. Source counts may be historical replay. Stopped root disks remain allocated; running-cost estimates exclude storage and management/monitoring.',
+               'description': 'Observed Pegasus infrastructure and historical game replay. Player capacity, customer share and EUR costs are prototype estimates. These are not current Steam totals. Stopped root disks remain allocated; running-cost estimates exclude storage and management/monitoring.',
                'templating': {'list': [
                    {'name': 'datasource', 'type': 'datasource', 'query': 'prometheus',
                     'current': {'text': 'Prometheus', 'value': 'Prometheus'}},
@@ -54,13 +54,19 @@ def build():
                     'current': {'text': '730', 'value': '730'}},
                ]},
                'links': [{'title': name, 'url': '/d/ruby-acorn-pegasus-'+key, 'keepTime': True, 'includeVars': True}
-                         for key, name, _ in dashboards], 'panels': []}
+                         for key, name, _ in dashboards], 'panels': [
+                             {'id': 1000, 'type': 'text', 'title': 'Data and estimate scope',
+                              'gridPos': {'x':0,'y':0,'w':24,'h':3},
+                              'options': {'mode':'markdown','content':
+                                  'Game counts are **historical replay** from the course exporter. '
+                                  'Worker states are observed in Pegasus. Customer share, player capacity '
+                                  'and EUR/hour are **prototype estimates**, not measured game performance or a bill.'}}]}
         for i, (name, queries) in enumerate(panels):
             if isinstance(queries, str):
                 queries = [queries]
             doc['panels'].append({'id': i+1, 'title': name, 'type': 'timeseries',
                 'datasource': {'type': 'prometheus', 'uid': '$datasource'},
-                'gridPos': {'x': (i%2)*12, 'y': (i//2)*8, 'w': 12, 'h': 8},
+                'gridPos': {'x': (i%2)*12, 'y': 3+(i//2)*8, 'w': 12, 'h': 8},
                 'targets': [{'refId': chr(65+j), 'expr': query, 'legendFormat': '{{appid}} {{name}} {{strategy}}'}
                             for j, query in enumerate(queries)],
                 'fieldConfig': {'defaults': {'min': 0}, 'overrides': []}})

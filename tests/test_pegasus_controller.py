@@ -127,6 +127,21 @@ def test_default_dry_run_never_fakes_state_or_actions(tmp_path):
         c.close()
 
 
+def test_dry_run_noop_clears_preceding_create_plan(tmp_path):
+    api = Cloud()
+    c = PegasusController(config(tmp_path), api)
+    try:
+        engine = DecisionEngine(ThresholdStrategy(), c, ScalingLimits(0, 1, 1))
+        evaluate_once(NS(get_player_count=lambda labels: 100), engine, {})
+        assert c.plan[0]['action'] == 'create'
+        engine.strategy = NS(desired_instances=lambda count: 0)
+        evaluate_once(NS(get_player_count=lambda labels: 0), engine, {})
+        assert c.plan == []
+        assert not api.calls
+    finally:
+        c.close()
+
+
 @pytest.mark.parametrize("field,value", [("instance_limit", 0), ("core_limit", 0), ("ram_limit", 512)])
 def test_quota_blocks_create_including_unrelated_usage(setup, field, value):
     c, api, _ = setup

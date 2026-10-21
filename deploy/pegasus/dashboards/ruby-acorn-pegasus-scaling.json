@@ -13,7 +13,7 @@
     "to": "now"
   },
   "timezone": "browser",
-  "description": "Observed Pegasus infrastructure and source exporter counts. Player capacity, customer share and EUR costs are prototype estimates. Source counts may be historical replay. Stopped root disks remain allocated; running-cost estimates exclude storage and management/monitoring.",
+  "description": "Observed Pegasus infrastructure and historical game replay. Player capacity, customer share and EUR costs are prototype estimates. These are not current Steam totals. Stopped root disks remain allocated; running-cost estimates exclude storage and management/monitoring.",
   "templating": {
     "list": [
       {
@@ -67,6 +67,21 @@
   ],
   "panels": [
     {
+      "id": 1000,
+      "type": "text",
+      "title": "Data and estimate scope",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Game counts are **historical replay** from the course exporter. Worker states are observed in Pegasus. Customer share, player capacity and EUR/hour are **prototype estimates**, not measured game performance or a bill."
+      }
+    },
+    {
       "id": 1,
       "title": "Desired and actual running workers",
       "type": "timeseries",
@@ -76,7 +91,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 0,
+        "y": 3,
         "w": 12,
         "h": 8
       },
@@ -109,7 +124,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 0,
+        "y": 3,
         "w": 12,
         "h": 8
       },
@@ -142,7 +157,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 8,
+        "y": 11,
         "w": 12,
         "h": 8
       },
@@ -170,7 +185,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 8,
+        "y": 11,
         "w": 12,
         "h": 8
       },
@@ -198,7 +213,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 16,
+        "y": 19,
         "w": 12,
         "h": 8
       },
@@ -226,7 +241,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 16,
+        "y": 19,
         "w": 12,
         "h": 8
       },
@@ -254,7 +269,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 24,
+        "y": 27,
         "w": 12,
         "h": 8
       },
@@ -282,7 +297,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 24,
+        "y": 27,
         "w": 12,
         "h": 8
       },

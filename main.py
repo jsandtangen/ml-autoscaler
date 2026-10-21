@@ -70,6 +70,7 @@ class AutoscalerConfig:
     pegasus_config: PegasusConfig | None = None
     pegasus_apply: bool = False
     demand_tuning: DemandTuning = field(default_factory=DemandTuning)
+    reject_zero_player_counts: bool = False
 
 
 def parse_label_filter(value: str) -> tuple[str, str]:
@@ -154,6 +155,8 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
     parser.add_argument("--scale-up-threshold", type=positive_float, default=1.10)
     parser.add_argument("--scale-down-threshold", type=positive_float, default=0.80)
     parser.add_argument("--downscale-seconds", type=nonnegative_float, default=180)
+    parser.add_argument("--reject-zero-player-counts", action="store_true",
+                        help="Hold capacity on zero counts from a source with known invalid zero periods.")
     parser.add_argument("--player-share", type=nonnegative_float, default=os.getenv("AUTOSCALER_PLAYER_SHARE", "0.001"))
     parser.add_argument("--players-per-instance", type=positive_int, default=os.getenv("AUTOSCALER_PLAYERS_PER_INSTANCE", "100"))
     parser.add_argument("--headroom-fraction", type=nonnegative_float, default=os.getenv("AUTOSCALER_HEADROOM_FRACTION", "0.10"))
@@ -338,6 +341,7 @@ def load_config(argv: Sequence[str] | None = None) -> AutoscalerConfig:
         openstack_pool=pool,
         pegasus_config=pegasus, pegasus_apply=args.pegasus_apply,
         demand_tuning=tuning,
+        reject_zero_player_counts=args.reject_zero_player_counts,
     )
 
 
@@ -455,6 +459,7 @@ def _run_loop(
         config.prometheus_url,
         metric_name=config.metric_name,
         max_sample_age_seconds=config.max_sample_age_seconds,
+        reject_zero_player_counts=config.reject_zero_player_counts,
     )
     metrics = metrics or AutoscalerMetrics()
     metrics.set_simulation_report(config.simulation_report_path)

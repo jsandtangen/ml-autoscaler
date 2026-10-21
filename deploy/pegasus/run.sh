@@ -8,6 +8,7 @@ exec /opt/ruby-acorn/.venv/bin/python main.py \
   --games-config /opt/ruby-acorn/deploy/pegasus/games.toml \
   --pegasus-apply --prometheus-url http://192.168.47.129:9090 \
   --label job=games --interval 30 --max-sample-age-seconds 120 \
+  --reject-zero-player-counts \
   --minimum-instances 0 --max-instances 1 --max-scaling-change 1 \
   --player-share 0.0001 --players-per-instance 100 \
   --downscale-seconds 180 --fixed-baseline-instances 1 \
