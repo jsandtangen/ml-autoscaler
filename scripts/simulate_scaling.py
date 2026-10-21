@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 
-from scaler.forecasting import load_player_history
+from scaler.forecasting import load_player_history, PersistenceForecaster
 from scaler.simulation import FixedCapacityStrategy, simulate_scaling, validate_replay
 from scaler.strategies.capacity import CapacityPolicy, ReactiveCapacityStrategy
 from scaler.strategies.predictive import PredictiveCapacityStrategy
@@ -43,6 +43,8 @@ def parse_args(argv=None):
     parser.add_argument("--model-cache-dir", default=".model-cache")
     parser.add_argument("--allow-model-download", action="store_true")
     parser.add_argument("--five-minute-study", action="store_true")
+    parser.add_argument("--compare-last-value", action="store_true",
+                        help="Replay cached TimesFM 15m against last-value with the identical predictive policy.")
     parser.add_argument("--study-phase", choices=("all", "forecasts", "replay"), default="all")
     parser.add_argument("--startup-seconds", type=int, nargs="+", default=[900, 1800])
     parser.add_argument("--decision-seconds", type=int, default=30)
@@ -229,11 +231,13 @@ def run_study(args, forecaster=None, raw_args=None):
     from scaler.strategies.demand import AggressiveCapacityStrategy, CostOptimizedStrategy, DemandTuning
     if any(name.startswith('OS_') for name in __import__('os').environ):
         raise ValueError('Simulation must run without OpenStack environment variables')
+    if args.compare_last_value and args.study_phase != 'replay':
+        raise ValueError('Last-value comparison requires replay of an existing forecast cache')
     rows, start, stop, signature, audit = study_data(args)
     caps = args.compare_max_instances or [1, args.max_instances]
     if len(set(caps)) != len(caps) or len(set(args.startup_seconds)) != len(args.startup_seconds):
         raise ValueError('Study scenarios must have distinct limits and startup delays')
-    shares = [('production_assumptions', args.player_share)]
+    shares = [('forecast_comparison' if args.compare_last_value else 'production_assumptions', args.player_share)]
     if args.stress_player_share is not None:
         if args.stress_player_share == args.player_share:
             raise ValueError('Stress share must differ and be labeled separately')
@@ -333,6 +337,9 @@ def run_study(args, forecaster=None, raw_args=None):
                               'timesfm_15m': PredictiveCapacityStrategy(policy, StudyCachedForecaster(rows, cached, clock, 15), args.window_size),
                               'timesfm_30m': PredictiveCapacityStrategy(policy, StudyCachedForecaster(rows, cached, clock, 30), args.window_size),
                               'fixed_capacity': FixedCapacityStrategy(cap)}
+                if args.compare_last_value:
+                    strategies = {'timesfm_15m': strategies['timesfm_15m'],
+                        'last_value_15m': PredictiveCapacityStrategy(policy, PersistenceForecaster(), args.window_size)}
                 for strategy in strategies.values():
                     if isinstance(strategy, PredictiveCapacityStrategy):
                         strategy.history.extend(r.player_count for r in rows[start-args.window_size:start])
@@ -341,9 +348,10 @@ def run_study(args, forecaster=None, raw_args=None):
                     cooldown_seconds=args.cooldown_seconds, initial_instances=args.initial_instances,
                     vm_cost_per_hour=args.vm_cost_per_hour)
                 scenario = {'label': label, 'startup_seconds': startup, 'policy': asdict(policy), 'limits': asdict(limits), 'results': results}
-                fixed_cost = results['fixed_capacity']['total_cost_eur']
+                fixed_cost = results.get('fixed_capacity', {}).get('total_cost_eur')
                 for name, result in results.items():
-                    result['cost_savings_vs_fixed_eur'] = fixed_cost-result['total_cost_eur']
+                    if fixed_cost is not None:
+                        result['cost_savings_vs_fixed_eur'] = fixed_cost-result['total_cost_eur']
                     summaries.append({'scenario': label, 'max_instances': cap, 'startup_seconds': startup,
                                       'strategy': name, **result})
                 directory = args.output_dir/f'{label}-max{cap}-startup{startup}'

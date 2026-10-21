@@ -65,6 +65,8 @@ def verify(directory, history_path):
                 elif name.startswith('timesfm_'):
                     horizon = name.split('_')[1].rstrip('m')
                     expected = policy.desired_instances(cached[index][horizon])
+                elif name == 'last_value_15m':
+                    expected = policy.desired_instances(rows[index].player_count)
                 else:
                     assert name == 'fixed_capacity'
                     expected = limits.maximum_instances
@@ -109,12 +111,12 @@ def verify(directory, history_path):
                 ('started','instances_started'), ('stopped','instances_stopped')]:
                 assert math.isclose(state[actual], result[field], rel_tol=1e-9, abs_tol=1e-7), field
             assert math.isclose(result['ready_instance_hours']+result['startup_instance_hours'], state['vm_hours'], abs_tol=1e-7)
-            if name.startswith('timesfm_'):
+            if name.startswith('timesfm_') or name == 'last_value_15m':
                 assert result['successful_forecasts'] == stop-start and result['forecast_fallbacks'] == 0
         checks.append({'label':case['label'], 'max_instances':limits.maximum_instances,
                        'startup_seconds':case['startup_seconds'], 'audited_decisions':decisions})
     return {'passed': True, 'cached_origins': len(cached), 'scenarios': checks,
-            'checks': ['actual aggressive and contextual cost rules at every tick',
+            'checks': ['actual strategy requests at every tick (rule implementations or forecast through shared policy)',
                        'past-only cached contexts and identical origin range',
                        'common initial fleet, cadence, cooldown, limits and pending readiness',
                        'cost, VM hours, shortfall and scaling counts reconstructed from traces']}

@@ -163,3 +163,39 @@ def test_independent_audit_reconstructs_rule_logic_and_rejects_changed_summary(t
     path.write_text(json.dumps(result))
     with pytest.raises(AssertionError, match='total_cost_eur'):
         verify(args.output_dir, args.history_path)
+
+
+def test_last_value_comparison_is_identical_when_cached_forecasts_equal_last_value(tmp_path):
+    from scripts.verify_scaling_study import verify
+    class LastValueModel:
+        def predict_steps(self, counts):
+            return [counts[-1]]*6
+    args = study_args(tmp_path)
+    args.study_phase = 'forecasts'
+    run_study(args, LastValueModel())
+    args.study_phase = 'replay'
+    args.compare_last_value = True
+    report = run_study(args)
+    for case in report['scenarios']:
+        assert set(case['results']) == {'timesfm_15m', 'last_value_15m'}
+        assert case['results']['timesfm_15m'] == case['results']['last_value_15m']
+    assert verify(args.output_dir, args.history_path)['passed']
+    # The independent auditor also checks baseline requests against current data.
+    case = report['scenarios'][-1]
+    path = args.output_dir/f"{case['label']}-max3-startup300"/'decisions.csv.gz'
+    with gzip.open(path, 'rt', newline='') as file:
+        trace = list(csv.DictReader(file))
+    next(row for row in trace if row['strategy'] == 'last_value_15m')['strategy_request'] = '99'
+    with gzip.open(path, 'wt', newline='') as file:
+        writer = csv.DictWriter(file, fieldnames=list(trace[0]))
+        writer.writeheader()
+        writer.writerows(trace)
+    with pytest.raises(AssertionError, match='actual strategy request'):
+        verify(args.output_dir, args.history_path)
+
+
+def test_last_value_comparison_requires_cached_replay(tmp_path):
+    args = study_args(tmp_path)
+    args.compare_last_value = True
+    with pytest.raises(ValueError, match='existing forecast cache'):
+        run_study(args, Model())

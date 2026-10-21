@@ -18,6 +18,22 @@ precedence over this guide.
 
 ## Project purpose and current status
 
+Last-value experiment completed on feature/pegasus-ml-scaling (2026-10-21).
+simulate_scaling.py --five-minute-study --compare-last-value --study-phase replay
+compares TimesFM15 and PersistenceForecaster through the SAME primed predictive
+strategy/CapacityPolicy. It requires the existing complete cache; no model load.
+Same historical input/window and stress assumptions as prior study: share .001,
+cap7, startup900s. Both EUR39.8567 / 398.5667 VMh / 19 minutes shortfall,
+56.7882 unserved player-hours (initial ramp only). TimesFM up/down20/17 versus
+last-value19/16: no demonstrated scaling benefit here. Independent audit passed
+28,960 decisions on Pegasus and locally. 397 local tests and 15 focused guest
+tests passed. Separate ruby-acorn-last-value-study.service completed with 1.690s
+CPU, 512MiB memory limit (peak counter unavailable), network denied, no OS_*
+environment or infrastructure access. New source/state directories under
+/opt/ruby-acorn-last-value-study and /var/lib/ruby-acorn-last-value-study.
+Active autoscaler/shadow PIDs56459/60786 unchanged, zero restarts. See
+docs/pegasus-scaling-study.md; ignored data/pegasus/last-value-study-20261021/.
+
 Offline scaling study completed on feature/pegasus-ml-scaling (2026-10-21).
 See docs/pegasus-scaling-study.md and ignored data/pegasus/scaling-study-20261021/.
 New simulation.py five-minute replay and simulate_scaling.py --five-minute-study

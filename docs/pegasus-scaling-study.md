@@ -226,3 +226,49 @@ Local ignored artifacts: `data/pegasus/scaling-study-20261021/`. Results and inp
 copy are under `results/`; isolation, monitoring/cloud receipts and a second local
 audit are adjacent. The server retains the complete input/cache/results under
 `/var/lib/ruby-acorn-scaling-study/`. Source changes remain on the ML branch.
+
+## Final experiment: TimesFM15 versus last-value
+
+Completed on Pegasus on 2026-10-21 using the original raw input, identical
+120h40m evaluation window (2018-04-15 21:10 to 2018-04-20 21:50 UTC exclusive),
+64-observation warmup and all 1,448 cached TimesFM origins. Dataset signatures,
+evaluation bounds, policy, limits and the TimesFM result match the prior stress
+case exactly. No model inference or download was performed.
+
+Both forecasts use `PredictiveCapacityStrategy`, `CapacityPolicy` share .001,
+100 players/VM, 10% headroom, minimum0/maximum7, maximum change1, one initial
+ready VM, 30s decisions, 120s cooldown, assumed 900s startup and EUR0.10/VMh.
+Starting VMs are billed but supply no capacity. Last-value predicts the current
+observation at +15m. Only the forecasting method differs.
+
+| Forecast | Estimated EUR | Billed VMh | Shortfall minutes | Unserved player-hours | Up / down events |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| TimesFM15 | 39.8567 | 398.5667 | 19 | 56.7882 | 20 / 17 |
+| Last-value15 | 39.8567 | 398.5667 | 19 | 56.7882 | 19 / 16 |
+
+All shortfall is in the common initial 19-minute ramp; neither method has
+shortfall afterward. TimesFM gives no improvement in cost, VM hours or unmet
+capacity on this window and causes two additional scaling events. The existing
+10% margin can absorb demand changes across startup, and forecasts mapping to
+the same integer VM target do not improve decisions. This historical replay
+does not establish equal performance on other workloads or measured game-server
+readiness. Costs exclude management, monitoring and ML compute as before.
+
+The small `--compare-last-value` replay option reuses the existing simulator and
+requires an existing complete cache. Tests prove identical cached forecasts and
+last-value yield identical results; the independent auditor checks baseline
+requests against actual current observations and rejects tampered requests.
+397 local tests passed (four existing SDK warnings); 15 focused Pegasus tests
+passed. Both local and guest audits reconstructed all 28,960 decision rows.
+
+`deploy/pegasus/ruby-acorn-last-value-study.service` ran independently, without
+network/OpenStack credentials or access to active state, under a 50% CPU quota
+and 512MiB memory cap. It completed successfully with 1.690s CPU time; peak memory
+was not retained by systemd. It is not boot-enabled. Original autoscaler PID56459
+and shadow PID60786 remained active with zero restarts; no VM actions or changes
+to active services were made. No merge occurred.
+
+Server artifacts: `/var/lib/ruby-acorn-last-value-study/20261021/`
+(`study.json`, `summary.csv`, `audit.json`, compressed decisions, cache and logs).
+Local copy and second audit: `data/pegasus/last-value-study-20261021/` (ignored).
+The service file records the exact command and all common assumptions.
