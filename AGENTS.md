@@ -18,6 +18,41 @@ precedence over this guide.
 
 ## Project purpose and current status
 
+Pegasus ML shadow added on feature/pegasus-ml-scaling (2026-10-21). Existing
+rule autoscaler/strategies/unit and all VMs are preserved. New independent
+ruby-acorn-ml-shadow.service uses ruby-acorn-ml (no login), separate
+/opt/ruby-acorn-ml-shadow venv, /var/lib/ruby-acorn-ml-shadow state and
+/var/cache/ruby-acorn-ml-shadow model cache. It has NO OpenStack credentials/SDK,
+rejects OS_* environment variables, cannot read home/production state, and
+systemd restricts network access to source/monitoring/localhost. CPUQuota 50%
+of one core, MemoryMax 2300M, one Torch thread. Never source OpenRC for ML.
+Do not change/restart the original autoscaler to operate shadow mode.
+
+scripts/shadow_autoscaler.py --five-minute reuses pretrained TimesFM 2.5 plus
+last-value/moving-average baselines; 64 five-minute context values, horizons
+3/6 steps (15/30m). Source appid 730 is historical CS:GO replay, NOT current CS2.
+Original source time and wall issue time remain separate. Fresh /health needs
+a cache-busting query due Varnish; match Prometheus games data to an unambiguous
+published replay bin. Never expose future replay rows to the model. Reject
+zero/gap windows and require matching live capacity policy/limits for proposals.
+Existing hourly shadow mode/journals remain intact. Metrics ruby_acorn_ml_* on
+192.168.45.220:8003 are a SECOND target of existing ruby_acorn_pegasus job;
+no duplicate live scaling metric names. New dashboard UID ruby-acorn-ml-shadow.
+Offline and live errors have separate evaluation labels; never claim live
+outcomes before their exact targets arrive. See docs/pegasus-ml-shadow.md and
+ignored data/pegasus/ml-shadow-20261021/ for results and current verification.
+ML final verification at about 11:59 Europe/Oslo: both horizons actually scored
+live (15m n=4, 30m n=1), 42 unique forecasts, source/outcome audit passed.
+TimesFM live MAE/RMSE 1483.83/1771.57 (15m), 711.59/711.59 (30m); exploratory
+offline n=197: 2228.98/4221.23 and 4888.51/8798.22. Never conflate these samples.
+382 local tests passed; guest 379 passed/three expected skips (Windows, SDK).
+All six scrape targets UP; all 14 new dashboard queries passed direct/proxy,
+and the three existing dashboards still passed. Original autoscaler PID 56459
+unchanged/no restarts; fresh decisions and both inputs available. Six existing
+VM IDs still ACTIVE/no task. ML PID 60786 enabled/active, no automatic restarts;
+verify fresh identity later. ML controlled restarts preserved pending outcomes.
+Both services remain running; no cleanup, VM changes or merge is implied.
+
 Verified Pegasus continuation (2026-10-21; interruption/plan-only notes below
 are historical): user restored VPN and explicitly requested completion. The
 recovered original demo-live.json had status=verified: created worker

@@ -1,0 +1,323 @@
+{
+  "uid": "ruby-acorn-ml-shadow",
+  "title": "Ruby Acorn ML Shadow \u2014 730 replay",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": [
+    "ruby-acorn",
+    "ml",
+    "shadow"
+  ],
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {
+          "text": "Prometheus",
+          "value": "Prometheus"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1000,
+      "type": "text",
+      "title": "Shadow only; historical source",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**No VM control.** TimesFM 2.5 predicts 3/6 five-minute steps (15/30 min). Appid 730 here is historical CS:GO replay, not current CS2 demand. Forecast curves are plotted at issue time; errors are scored only when the exact source target arrives. Offline replay and observed live-shadow errors have separate evaluation labels. Zero/gap windows are rejected. Capacity uses the live policy and max=1 per game; it is a prototype estimate."
+      }
+    },
+    {
+      "id": 1,
+      "title": "Fresh observer / forecasts available",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ruby_acorn_ml_observer_fresh{job=\"ruby_acorn_pegasus\",appid=\"730\"}",
+          "legendFormat": "{{model}} {{horizon_minutes}}m {{evaluation}} {{__name__}}"
+        },
+        {
+          "refId": "B",
+          "expr": "ruby_acorn_ml_forecast_available{job=\"ruby_acorn_pegasus\",appid=\"730\"}",
+          "legendFormat": "{{model}} {{horizon_minutes}}m {{evaluation}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "Forecasts at issue time (global replay players)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ruby_acorn_ml_predicted_players{job=\"ruby_acorn_pegasus\",appid=\"730\"}",
+          "legendFormat": "{{model}} {{horizon_minutes}}m {{evaluation}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Observed source (historical replay)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "steam_player_count{job=\"games\",appid=\"730\"}",
+          "legendFormat": "{{model}} {{horizon_minutes}}m {{evaluation}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Bounded ML and baseline VM recommendations",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ruby_acorn_ml_recommended_instances{job=\"ruby_acorn_pegasus\",appid=\"730\"}",
+          "legendFormat": "{{model}} {{horizon_minutes}}m {{evaluation}} {{__name__}}"
+        },
+        {
+          "refId": "B",
+          "expr": "desired_instances{job=\"ruby_acorn_pegasus\",appid=\"730\"}",
+          "legendFormat": "{{model}} {{horizon_minutes}}m {{evaluation}} {{__name__}}"
+        },
+        {
+          "refId": "C",
+          "expr": "pegasus_running_instances{job=\"ruby_acorn_pegasus\",appid=\"730\"}",
+          "legendFormat": "{{model}} {{horizon_minutes}}m {{evaluation}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Unbounded modeled requirement",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ruby_acorn_ml_required_instances{job=\"ruby_acorn_pegasus\",appid=\"730\"}",
+          "legendFormat": "{{model}} {{horizon_minutes}}m {{evaluation}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "MAE (offline and live are separate series)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ruby_acorn_ml_mae_players{job=\"ruby_acorn_pegasus\",appid=\"730\"}",
+          "legendFormat": "{{model}} {{horizon_minutes}}m {{evaluation}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "title": "RMSE (offline and live are separate series)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ruby_acorn_ml_rmse_players{job=\"ruby_acorn_pegasus\",appid=\"730\"}",
+          "legendFormat": "{{model}} {{horizon_minutes}}m {{evaluation}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "title": "Scored live forecasts / offline samples",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ruby_acorn_ml_scored_forecasts_total{job=\"ruby_acorn_pegasus\",appid=\"730\"}",
+          "legendFormat": "{{model}} {{horizon_minutes}}m {{evaluation}} {{__name__}}"
+        },
+        {
+          "refId": "B",
+          "expr": "ruby_acorn_ml_evaluation_samples{job=\"ruby_acorn_pegasus\",appid=\"730\"}",
+          "legendFormat": "{{model}} {{horizon_minutes}}m {{evaluation}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "title": "Inference seconds / process peak MiB",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ruby_acorn_ml_inference_seconds{job=\"ruby_acorn_pegasus\",appid=\"730\"}",
+          "legendFormat": "{{model}} {{horizon_minutes}}m {{evaluation}} {{__name__}}"
+        },
+        {
+          "refId": "B",
+          "expr": "ruby_acorn_ml_peak_rss_bytes{job=\"ruby_acorn_pegasus\",appid=\"730\"} / 1024 / 1024",
+          "legendFormat": "{{model}} {{horizon_minutes}}m {{evaluation}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

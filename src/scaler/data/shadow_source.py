@@ -3,16 +3,74 @@ import math
 from dataclasses import asdict
 
 from scaler.data.client import GameDataClient, PlayerCountNotFoundError, PrometheusResponseError
-from scaler.forecasting import PlayerObservation
 from scaler.strategies.capacity import CapacityPolicy
 from scaler.engine.scaling_limits import ScalingLimits
+from scaler.forecasting import PlayerObservation
+
+
+def parse_replay_history(payload, appid="730"):
+    """Keep original source time; never re-label old replay as current Steam."""
+    from scaler.shadow import validate_five_minute_history
+    if str(payload.get("appid")) != appid or payload.get("interval_seconds") != 300:
+        raise ValueError("Replay history game/interval mismatch")
+    epoch = payload["data_epoch"]
+    if type(epoch) not in (int, float) or not math.isfinite(epoch) or epoch < 0 or epoch % 300:
+        raise ValueError("Invalid original source epoch")
+    if 'data_points' in payload and payload['data_points'] != len(payload['data']):
+        raise ValueError("Truncated history: declared data_points differs from received rows")
+    rows = []
+    for item in payload["data"]:
+        if (type(item["interval"]) is not int or item["interval"] < 0
+                or item["timestamp"] != epoch+item["interval"]*300):
+            raise ValueError("Replay interval and source timestamp disagree")
+        rows.append(PlayerObservation(item["timestamp"], item["count"]))
+    validate_five_minute_history(rows)
+    return rows
+
+
+def replay_cutoff(payload, health, now):
+    """Validate the wall/source clock relationship before exposing past rows."""
+    interval, epoch = health["current_interval"], health["replay_epoch"]
+    elapsed = health.get("elapsed_seconds", now-epoch)
+    if (health.get("status") != "ok" or type(interval) is not int
+            or not 0 <= interval <= health["max_interval"]
+            or not math.isfinite(epoch) or not math.isfinite(elapsed)
+            # The course exporter publishes interval n during the following bin.
+            # Check its elapsed clock separately from up to 120s host clock skew.
+            or abs(now-epoch-elapsed) > 120 or not 0 <= elapsed-interval*300 < 600
+            or now < epoch+interval*300-5):
+        raise ValueError("Invalid or stale replay clock")
+    return payload["data_epoch"]+interval*300
+
+
+def observed_replay_rows(rows, cutoff, sample, now, window_size):
+    """Match the cached source to a past replay bin, never to a future one.
+
+    Varnish can lag fresh /health by two bins. Reject ambiguous matches rather
+    than assigning a guessed original timestamp to a count.
+    """
+    if not 0 <= now-sample.timestamp <= 90:
+        raise ValueError("Stale Prometheus source")
+    candidates = [r for r in rows if cutoff-600 <= r.timestamp <= cutoff
+                  and r.player_count == sample.player_count]
+    if len(candidates) != 1:
+        raise ValueError("Prometheus source does not uniquely match a recent replay bin")
+    end = candidates[0].timestamp
+    return [r for r in rows if end-(window_size+7)*300 <= r.timestamp <= end]
 
 
 class ShadowPrometheusClient(GameDataClient):
+    def __init__(self, *args, source_job=None, autoscaler_job="autoscaler", **kwargs):
+        super().__init__(*args, **kwargs)
+        self.source_job, self.autoscaler_job = source_job, autoscaler_job
+
     def latest_observation(self, appid: str) -> PlayerObservation:
         # A range vector preserves actual scrape timestamps, unlike an instant
         # evaluation timestamp. Never label an old source sample as fresh now.
-        selector = self._build_query({"appid": appid})
+        labels = {"appid": appid}
+        if self.source_job:
+            labels["job"] = self.source_job
+        selector = self._build_query(labels)
         results = self._extract_results(self._query_prometheus(selector+"[5m]"))
         if not results:
             raise PlayerCountNotFoundError("No recent player source samples")
@@ -30,6 +88,7 @@ class ShadowPrometheusClient(GameDataClient):
 
     def live_decision(self, appid: str, now: float) -> dict:
         query = '{__name__=~"running_instances|desired_instances|strategy|last_decision_timestamp_seconds|capacity_source_info|capacity_player_share|capacity_players_per_instance|capacity_headroom_fraction|capacity_minimum_instances|maximum_instances|max_scaling_change",job="autoscaler"}'
+        query = query.replace('job="autoscaler"', 'job="'+self._escape_label_value(self.autoscaler_job)+'"')
         results = self._extract_results(self._query_prometheus(query))
         try:
             selected = [row for row in results if row["metric"].get("appid") == appid]

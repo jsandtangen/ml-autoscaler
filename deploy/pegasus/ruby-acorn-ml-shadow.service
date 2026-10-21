@@ -1,0 +1,44 @@
+[Unit]
+Description=Ruby Acorn TimesFM 15/30 minute replay shadow (no VM control)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=ruby-acorn-ml
+Group=ruby-acorn-ml
+WorkingDirectory=/opt/ruby-acorn-ml-shadow
+Environment=PYTHONUNBUFFERED=1
+Environment=OMP_NUM_THREADS=1
+Environment=MKL_NUM_THREADS=1
+Environment=HF_HUB_OFFLINE=1
+Environment=HF_HUB_DISABLE_TELEMETRY=1
+Environment=HF_HOME=/var/cache/ruby-acorn-ml-shadow/hf-home
+ExecStart=/opt/ruby-acorn-ml-shadow/.venv/bin/python -m scripts.shadow_autoscaler --five-minute --appid 730 --window-size 64 --prometheus-url http://192.168.47.129:9090 --source-job games --autoscaler-job ruby_acorn_pegasus --source-url http://10.196.242.62 --output-dir /var/lib/ruby-acorn-ml-shadow --model-cache-dir /var/cache/ruby-acorn-ml-shadow --player-share 0.0001 --players-per-instance 100 --headroom-fraction 0.1 --minimum-instances 0 --max-instances 1 --max-scaling-change 1 --metrics-host 192.168.45.220 --metrics-port 8003
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=30
+CPUQuota=50%
+MemoryHigh=1800M
+MemoryMax=2300M
+TasksMax=64
+Nice=10
+StateDirectory=ruby-acorn-ml-shadow
+CacheDirectory=ruby-acorn-ml-shadow
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+InaccessiblePaths=/opt/ruby-acorn /var/lib/ruby-acorn -/etc/openstack
+ReadWritePaths=/var/lib/ruby-acorn-ml-shadow /var/cache/ruby-acorn-ml-shadow
+RestrictAddressFamilies=AF_INET AF_UNIX
+IPAddressDeny=any
+IPAddressAllow=127.0.0.1/32 10.196.242.62/32 192.168.47.129/32
+CapabilityBoundingSet=
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

@@ -64,6 +64,10 @@ class TimesFMForecaster:
         return model
 
     def predict(self, player_counts: Sequence[int]) -> float:
+        return self.predict_steps(player_counts)[-1]
+
+    def predict_steps(self, player_counts: Sequence[int]) -> list[float]:
+        """Return every step using one loaded model and one inference call."""
         if len(player_counts) != self.window_size:
             raise ValueError(f"TimesFM requires exactly {self.window_size} input observations")
         if any(not math.isfinite(count) or count < 0 for count in player_counts):
@@ -77,9 +81,9 @@ class TimesFMForecaster:
             # The evaluator scores the target at h, not the mean of steps 1..h.
             if len(points) != 1 or len(points[0]) != self.horizon:
                 raise ValueError("Unexpected point forecast shape")
-            prediction = float(points[0][self.horizon - 1])
-            if not math.isfinite(prediction) or prediction < 0:
+            predictions = [float(value) for value in points[0]]
+            if any(not math.isfinite(value) or value < 0 for value in predictions):
                 raise ValueError("Prediction must be finite and nonnegative")
         except (OSError, RuntimeError, ValueError, TypeError, IndexError) as error:
             raise TimesFMError(f"TimesFM forecast failed: {error}") from error
-        return prediction
+        return predictions
