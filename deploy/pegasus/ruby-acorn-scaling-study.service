@@ -1,0 +1,39 @@
+[Unit]
+Description=Ruby Acorn offline scaling comparison (no infrastructure access)
+
+[Service]
+Type=oneshot
+User=ruby-acorn-ml
+Group=ruby-acorn-ml
+WorkingDirectory=/opt/ruby-acorn-scaling-study
+Environment=PYTHONPATH=/opt/ruby-acorn-scaling-study/src
+Environment=PYTHONUNBUFFERED=1
+Environment=OMP_NUM_THREADS=1
+Environment=MKL_NUM_THREADS=1
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=HF_HUB_OFFLINE=1
+Environment=HF_HUB_DISABLE_TELEMETRY=1
+Environment=HF_HOME=/var/lib/ruby-acorn-scaling-study/hf-home
+ExecStart=/opt/ruby-acorn-ml-shadow/.venv/bin/python -m scripts.simulate_scaling --five-minute-study --history-path /var/lib/ruby-acorn-scaling-study/source-history.json --appid 730 --output-dir /var/lib/ruby-acorn-scaling-study/20261021 --window-size 64 --model-cache-dir /var/cache/ruby-acorn-ml-shadow --player-share 0.0001 --stress-player-share 0.001 --players-per-instance 100 --headroom-fraction 0.1 --minimum-instances 0 --initial-instances 1 --max-scaling-change 1 --compare-max-instances 1 7 --startup-seconds 900 1800 --decision-seconds 30 --cooldown-seconds 120
+ExecStartPost=/opt/ruby-acorn-ml-shadow/.venv/bin/python -m scripts.verify_scaling_study --study-dir /var/lib/ruby-acorn-scaling-study/20261021 --history-path /var/lib/ruby-acorn-scaling-study/source-history.json --output-path /var/lib/ruby-acorn-scaling-study/20261021/audit.json
+TimeoutStartSec=infinity
+Restart=no
+Nice=15
+CPUQuota=50%
+MemoryHigh=1300M
+MemoryMax=1500M
+MemorySwapMax=0
+OOMPolicy=stop
+TasksMax=64
+StateDirectory=ruby-acorn-scaling-study
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+InaccessiblePaths=/opt/ruby-acorn /var/lib/ruby-acorn /var/lib/ruby-acorn-ml-shadow -/etc/openstack
+ReadWritePaths=/var/lib/ruby-acorn-scaling-study
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+CapabilityBoundingSet=
+RestrictSUIDSGID=true

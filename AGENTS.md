@@ -18,6 +18,36 @@ precedence over this guide.
 
 ## Project purpose and current status
 
+Offline scaling study completed on feature/pegasus-ml-scaling (2026-10-21).
+See docs/pegasus-scaling-study.md and ignored data/pegasus/scaling-study-20261021/.
+New simulation.py five-minute replay and simulate_scaling.py --five-minute-study
+reuse actual aggressive/cost strategy requests, CostOptimizedStrategy's virtual
+180s timer, shared 30s decisions/120s cooldown, pending startup capacity and
+ScalingLimits. Legacy hourly request-overwrite bug fixed; its tests preserved.
+TimesFM cached once for 1,448 origins on the longest clean segment (1,518
+five-minute observations, Apr 15-20 2018); separate 64-observation warmup,
+common 120h40m evaluation and six reserved future targets. No predictive fallback.
+Five methods, caps 1/7, startup assumptions 15/30m, production share .0001 and
+separately labeled 10x load .001: eight cases/40 result rows. All begin with one
+ready VM and zero pending. Fixed is a constant target equal to each cap, including
+the same initial ramp. Starting VMs count toward allocation/cost, not capacity;
+stops/cancellations are immediate. These are model assumptions, not API replay.
+Production share/cap1: all methods EUR12.07, 120.67 VMh, zero deficit/actions.
+Stress/cap7/15m: TimesFM15 EUR39.86/0.3167 deficit hours vs aggressive
+EUR57.83/0.3167 and cost_optimized EUR37.04/22h. Do not claim current-production
+savings or isolate forecasting benefit from the strategies' different buffers.
+395 local tests passed; guest 392/three skips. Independent auditor reconstructed
+579,200 saved decisions and actual rule calls; passed remotely and locally.
+New oneshot ruby-acorn-scaling-study.service completed successfully, not enabled
+at boot. Separate /opt/ruby-acorn-scaling-study source/PYTHONPATH; output/input
+/var/lib/ruby-acorn-scaling-study, cached weights/interpreter read-only. NO OS_*
+credentials, home/active-state paths inaccessible, network denied/AF_UNIX only,
+50% CPU quota and 1500 MiB memory cap. Model worker exits before replay.
+Do not rerun the completed unit into existing results; reuse cache with a new
+output directory. Original autoscaler PID 56459 and shadow PID 60786 unchanged,
+active/no restarts; monitoring passed and all six VM IDs ACTIVE/no tasks. No
+existing VM, service, credentials, live configuration or merge was changed.
+
 Pegasus ML shadow added on feature/pegasus-ml-scaling (2026-10-21). Existing
 rule autoscaler/strategies/unit and all VMs are preserved. New independent
 ruby-acorn-ml-shadow.service uses ruby-acorn-ml (no login), separate
