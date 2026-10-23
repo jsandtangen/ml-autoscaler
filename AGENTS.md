@@ -1,5 +1,16 @@
 # Agent Guide
 
+Maintenance preparation 2026-10-23 for Pegasus shutdown 2026-10-24 09:30
+Europe/Oslo: ruby-acorn.service AND ruby-acorn-ml-shadow.service were deliberately
+stopped and disabled (previously enabled/active); ML stop explicitly approved.
+Do not restart or enable either without new user approval after maintenance and
+healthy dependencies. Six existing VMs preserved ACTIVE/no tasks. Monitoring
+Swarm unchanged. Verified encrypted off-Pegasus backups and recovery checklist:
+docs/pegasus-maintenance-20261024.md. Private backup destination outside OneDrive:
+C:/Users/jsand/RubyAcornBackups/pegasus/maintenance-20261024. DPAPI archives require
+the original Windows account/profile. This status supersedes older running-state
+notes below. The read-only recovery script never starts services.
+
 ## Scope and collaboration
 
 This guide applies to the entire repository. Follow more specific AGENTS.md
